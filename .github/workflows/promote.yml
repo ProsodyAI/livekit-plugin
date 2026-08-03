@@ -1,0 +1,77 @@
+name: Promote dev
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [dev]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote-dev-to-main
+  cancel-in-progress: true
+
+jobs:
+  promote:
+    name: Open or update dev to main PR
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'dev' &&
+      github.event.workflow_run.repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open or update promotion pull request
+        env:
+          GH_TOKEN: ${{ secrets.PROSODYAI_RELEASE_TOKEN }}
+          GREEN_SHA: ${{ github.event.workflow_run.head_sha }}
+          CI_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::notice title=Promotion skipped::PROSODYAI_RELEASE_TOKEN is not configured"
+            exit 0
+          fi
+
+          CURRENT_DEV_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/dev" --jq '.object.sha')"
+          if [ "$CURRENT_DEV_SHA" != "$GREEN_SHA" ]; then
+            echo "::notice title=Stale dev run skipped::CI passed for $GREEN_SHA but dev is now $CURRENT_DEV_SHA"
+            exit 0
+          fi
+
+          AHEAD_BY="$(gh api "repos/$GITHUB_REPOSITORY/compare/main...dev" --jq '.ahead_by')"
+          if [ "$AHEAD_BY" = "0" ]; then
+            echo "::notice title=Promotion not needed::dev has no commits to promote"
+            exit 0
+          fi
+
+          TITLE="Promote dev to main"
+          PR_NUMBER="$(gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
+            --base main \
+            --head dev \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty')"
+
+          REVALIDATED_DEV_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/dev" --jq '.object.sha')"
+          if [ "$REVALIDATED_DEV_SHA" != "$GREEN_SHA" ]; then
+            echo "::notice title=Dev advanced before PR update::CI passed for $GREEN_SHA but dev is now $REVALIDATED_DEV_SHA"
+            exit 0
+          fi
+          BODY="$(printf 'Automated promotion request after green dev CI.\n\nRevalidated dev SHA: `%s`\nCI run: %s' "$REVALIDATED_DEV_SHA" "$CI_URL")"
+
+          if [ -z "$PR_NUMBER" ]; then
+            gh pr create \
+              --repo "$GITHUB_REPOSITORY" \
+              --base main \
+              --head dev \
+              --title "$TITLE" \
+              --body "$BODY"
+          else
+            gh pr edit "$PR_NUMBER" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$TITLE" \
+              --body "$BODY"
+          fi

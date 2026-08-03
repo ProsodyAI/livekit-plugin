@@ -2,14 +2,40 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [dev, main]
   push:
-    branches: [main]
+    branches: [dev, main]
 
 permissions:
   contents: read
 
 jobs:
+  public-surface:
+    name: Public surface guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject private implementation surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tracked_files="$RUNNER_TEMP/tracked-files.txt"
+          git ls-files > "$tracked_files"
+
+          forbidden_paths='(^|/)(workers?|providers?)(/|\.py$)|targeted|rehears(al|e|ing)?|admin[-_]?demo|clon(e|ing)'
+          if grep -Ein "$forbidden_paths" "$tracked_files"; then
+            echo "::error title=Private path detected::The public repository contains a worker, provider, targeted, rehearsal, admin-demo, or cloning path."
+            exit 1
+          fi
+
+          forbidden_code='person_id|speaker_profiles?|voice.?clone|voxcpm|baseten|pinecone|openai([_-]?api)?[-_[:space:]]?key|prosodyai_admin|jacob|kyle|target.?policy'
+          if git grep -n -i -E "$forbidden_code" -- \
+            'livekit_plugins_prosodyai/**' 'examples/**' 'tests/**'; then
+            echo "::error title=Private implementation detected::The public implementation contains an internal identity, provider, named-user, credential, or targeting marker."
+            exit 1
+          fi
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -29,3 +55,24 @@ jobs:
       - run: python -m pytest
       - run: python -m build
       - run: python -m twine check dist/*
+
+  notify-root:
+    name: Notify root integration
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [public-surface, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch exact merged commit
+        env:
+          GH_TOKEN: ${{ secrets.PROSODYAI_ROOT_DISPATCH_TOKEN }}
+          LIVEKIT_SHA: ${{ github.sha }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::notice title=Root integration notification skipped::PROSODYAI_ROOT_DISPATCH_TOKEN is not configured; the root repository will poll for $LIVEKIT_SHA"
+            exit 0
+          fi
+          gh api --method POST repos/ProsodyAI/prosodyai/dispatches \
+            -f event_type=prosodyai_livekit_main_updated \
+            -f "client_payload[livekit_sha]=$LIVEKIT_SHA" \
+            -f "client_payload[source_repository]=$GITHUB_REPOSITORY" \
+            -f "client_payload[source_ref]=$GITHUB_REF_NAME"
