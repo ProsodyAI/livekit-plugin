@@ -25,7 +25,7 @@ jobs:
       - run: python -m pip install -e '.[dev]'
       - run: ruff check .
       - run: ruff format --check .
-      - run: mypy livekit_plugins_prosodyai
+      - run: mypy --python-version "${{ matrix.python-version }}" livekit_plugins_prosodyai
       - run: python -m pytest
       - run: python -m build
       - run: python -m twine check dist/*
