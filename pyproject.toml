@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "livekit-plugins-prosodyai"
+version = "0.1.0"
+description = "ProsodyAI acoustic analysis for LiveKit audio tracks"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "ProsodyAI" }]
+keywords = ["acoustics", "audio", "diarization", "livekit", "speech"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
+]
+dependencies = [
+    "livekit>=1.1.13,<2",
+    "websockets>=16,<18",
+]
+
+[project.optional-dependencies]
+dev = [
+    "build>=1.2",
+    "mypy>=1.15",
+    "pytest>=8",
+    "pytest-asyncio>=0.25",
+    "ruff>=0.11",
+    "twine>=5,<7",
+]
+
+[project.urls]
+Homepage = "https://github.com/ProsodyAI/livekit"
+Source = "https://github.com/ProsodyAI/livekit"
+Issues = "https://github.com/ProsodyAI/livekit/issues"
+Documentation = "https://prosodyai.app/docs"
+
+[tool.hatch.build.targets.wheel]
+packages = ["livekit_plugins_prosodyai"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["B", "C4", "E", "F", "I", "UP", "W"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["livekit.*", "websockets.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+addopts = "-q"
+asyncio_mode = "strict"
+testpaths = ["tests"]
