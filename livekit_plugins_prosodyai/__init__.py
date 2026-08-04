@@ -1,21 +1,20 @@
-"""ProsodyAI acoustic analysis for LiveKit."""
+"""Compatibility imports for the pre-release ProsodyAI LiveKit namespace."""
 
-from .analyzer import ProsodyAnalyzer
-from .conversation import Conversation
-from .models import (
+from livekit.plugins.prosodyai import (
     AcousticChange,
     AcousticDelta,
     AcousticEvent,
     AcousticFrames,
     AcousticState,
     AcousticWindow,
+    Conversation,
     FeaturePoint,
     FramePoint,
+    ProsodyAnalyzer,
     Speaker,
     TranscriptTurn,
+    __version__,
 )
-
-__version__ = "0.1.0"
 
 __all__ = [
     "AcousticChange",
@@ -30,4 +29,5 @@ __all__ = [
     "ProsodyAnalyzer",
     "Speaker",
     "TranscriptTurn",
+    "__version__",
 ]

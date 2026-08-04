@@ -3,8 +3,9 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Mapping
 
 import pytest
+from livekit.agents import Plugin
 
-from livekit_plugins_prosodyai import ProsodyAnalyzer
+from livekit.plugins import prosodyai
 
 from .test_conversation import directive, transcript_update
 
@@ -21,7 +22,7 @@ class FakeTransport:
 
 def test_repr_redacts_api_key() -> None:
     secret = "test-key-that-must-not-appear"
-    analyzer = ProsodyAnalyzer(api_key=secret, session_id="session-safe")
+    analyzer = prosodyai.ProsodyAnalyzer(api_key=secret, session_id="session-safe")
 
     rendered = repr(analyzer)
     assert secret not in rendered
@@ -29,7 +30,7 @@ def test_repr_redacts_api_key() -> None:
 
 
 def test_analyzer_owns_and_updates_a_conversation() -> None:
-    analyzer = ProsodyAnalyzer(api_key="test-key", session_id="session-test")
+    analyzer = prosodyai.ProsodyAnalyzer(api_key="test-key", session_id="session-test")
 
     analyzer.apply_message(transcript_update(final=True))
     event = analyzer.apply_message(directive())
@@ -48,7 +49,7 @@ async def test_analyze_track_applies_all_messages_and_yields_only_acoustics() ->
             {"type": "warning", "code": "synthetic_warning"},
         ]
     )
-    analyzer = ProsodyAnalyzer(
+    analyzer = prosodyai.ProsodyAnalyzer(
         api_key="test-key",
         session_id="session-test",
         _transport=transport,
@@ -64,8 +65,19 @@ async def test_analyze_track_applies_all_messages_and_yields_only_acoustics() ->
 @pytest.mark.asyncio
 async def test_analyze_track_requires_an_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("PROSODY_API_KEY", raising=False)
-    analyzer = ProsodyAnalyzer(_transport=FakeTransport([]))
+    analyzer = prosodyai.ProsodyAnalyzer(_transport=FakeTransport([]))
 
     with pytest.raises(RuntimeError, match="PROSODY_API_KEY is required"):
         async for _event in analyzer.analyze_track(object()):
             pass
+
+
+def test_import_registers_the_livekit_plugin() -> None:
+    registered = [
+        plugin
+        for plugin in Plugin.registered_plugins
+        if plugin.package == "livekit.plugins.prosodyai"
+    ]
+    assert len(registered) == 1
+    assert registered[0].title == "livekit.plugins.prosodyai"
+    assert registered[0].version == prosodyai.__version__

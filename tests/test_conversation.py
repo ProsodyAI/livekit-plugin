@@ -4,7 +4,7 @@ from dataclasses import fields
 
 import pytest
 
-from livekit_plugins_prosodyai import (
+from livekit.plugins.prosodyai import (
     AcousticEvent,
     Conversation,
     Speaker,
