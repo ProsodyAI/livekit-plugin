@@ -4,14 +4,23 @@ build-backend = "hatchling.build"
 
 [project]
 name = "livekit-plugins-prosodyai"
-version = "0.1.0"
-description = "ProsodyAI acoustic analysis for LiveKit audio tracks"
+version = "0.2.0"
+description = "ProsodyAI acoustic speech analysis and recording-local diarization for LiveKit Agents"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.15"
 license = "MIT"
 license-files = ["LICENSE"]
-authors = [{ name = "ProsodyAI" }]
-keywords = ["acoustics", "audio", "diarization", "livekit", "speech"]
+authors = [{ name = "Prosody AI, Inc." }]
+keywords = [
+    "acoustics",
+    "audio",
+    "diarization",
+    "livekit",
+    "livekit-agents",
+    "prosodyai",
+    "speech",
+    "voice-agents",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -21,10 +30,12 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Typing :: Typed",
 ]
 dependencies = [
-    "livekit>=1.1.13,<2",
+    "livekit-agents>=1.6.8,<2",
     "websockets>=16,<18",
 ]
 
@@ -32,6 +43,7 @@ dependencies = [
 dev = [
     "build>=1.2",
     "mypy>=1.15",
+    "numpy>=1.26,<2.5",
     "pytest>=8",
     "pytest-asyncio>=0.25",
     "ruff>=0.11",
@@ -39,13 +51,14 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ProsodyAI/livekit"
+Homepage = "https://prosodyai.app"
 Source = "https://github.com/ProsodyAI/livekit"
 Issues = "https://github.com/ProsodyAI/livekit/issues"
-Documentation = "https://prosodyai.app/docs"
+Documentation = "https://prosodyai.app/docs/livekit"
+"LiveKit Agents" = "https://docs.livekit.io/agents"
 
 [tool.hatch.build.targets.wheel]
-packages = ["livekit_plugins_prosodyai"]
+packages = ["livekit", "livekit_plugins_prosodyai"]
 
 [tool.ruff]
 line-length = 100
@@ -59,9 +72,10 @@ ignore = ["E501"]
 python_version = "3.10"
 strict = true
 warn_unreachable = true
+explicit_package_bases = true
 
 [[tool.mypy.overrides]]
-module = ["livekit.*", "websockets.*"]
+module = ["websockets.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

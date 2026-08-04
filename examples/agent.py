@@ -5,14 +5,13 @@ from __future__ import annotations
 import os
 
 from livekit import rtc
-
-from livekit_plugins_prosodyai import ProsodyAnalyzer
+from livekit.plugins import prosodyai
 
 
 async def observe_track(track: rtc.AudioTrack) -> None:
     """Analyze one track and print measured acoustic state as it arrives."""
 
-    analyzer = ProsodyAnalyzer(api_key=os.environ["PROSODY_API_KEY"])
+    analyzer = prosodyai.ProsodyAnalyzer(api_key=os.environ["PROSODY_API_KEY"])
 
     async for event in analyzer.analyze_track(track):
         window = event.window
