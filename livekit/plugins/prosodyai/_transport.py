@@ -84,14 +84,14 @@ class RealtimeTransport:
                         if not isinstance(decoded, dict):
                             continue
                         message = cast(dict[str, object], decoded)
-                        if message.get("type") == "session_end":
-                            return
                         if message.get("type") == "error":
                             detail = message.get("message")
                             safe_detail = detail if isinstance(detail, str) else "analysis failed"
                             await queue.put(RuntimeError(safe_detail))
                             return
                         await queue.put(message)
+                        if message.get("type") == "session_end":
+                            return
                 except Exception as exc:
                     await queue.put(exc)
                 finally:
@@ -187,9 +187,12 @@ class RealtimeTransport:
                 raise RuntimeError(f"ffmpeg exited with status {return_code}")
             await websocket.send(json.dumps({"type": "end"}))
         finally:
-            if process is not None and process.returncode is None:
-                process.terminate()
-                await process.wait()
+            try:
+                await stream.aclose()
+            finally:
+                if process is not None and process.returncode is None:
+                    process.terminate()
+                    await process.wait()
 
 
 __all__ = ["RealtimeTransport"]

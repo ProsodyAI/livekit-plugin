@@ -20,6 +20,13 @@ class FakeTransport:
             yield message
 
 
+class FailingTransport:
+    async def messages(self, track: object) -> AsyncIterator[Mapping[str, object]]:
+        if track is self:
+            yield {}
+        raise ConnectionError("stream disconnected")
+
+
 def test_repr_redacts_api_key() -> None:
     secret = "test-key-that-must-not-appear"
     analyzer = prosodyai.ProsodyAnalyzer(api_key=secret, session_id="session-safe")
@@ -70,6 +77,52 @@ async def test_analyze_track_requires_an_api_key(monkeypatch: pytest.MonkeyPatch
     with pytest.raises(RuntimeError, match="PROSODY_API_KEY is required"):
         async for _event in analyzer.analyze_track(object()):
             pass
+
+
+@pytest.mark.asyncio
+async def test_analyze_track_surfaces_transport_failure() -> None:
+    analyzer = prosodyai.ProsodyAnalyzer(
+        api_key="test-key",
+        _transport=FailingTransport(),
+    )
+
+    with pytest.raises(ConnectionError, match="stream disconnected"):
+        async for _event in analyzer.analyze_track(object()):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_analyze_track_applies_the_terminal_session_result() -> None:
+    transport = FakeTransport(
+        [
+            transcript_update(final=False),
+            {
+                "type": "session_end",
+                "session_id": "session-test",
+                "transcript": {
+                    "turns": [
+                        {
+                            "start_ms": 100,
+                            "end_ms": 900,
+                            "speaker_id": "speaker_4",
+                            "text": "Authoritative final turn",
+                        }
+                    ]
+                },
+            },
+        ]
+    )
+    analyzer = prosodyai.ProsodyAnalyzer(
+        api_key="test-key",
+        session_id="session-test",
+        _transport=transport,
+    )
+
+    events = [event async for event in analyzer.analyze_track(object())]
+
+    assert events == []
+    assert analyzer.conversation.get_transcript(final_only=True) == "Authoritative final turn"
+    assert analyzer.conversation.get_turn(0).speaker_id == "speaker_4"
 
 
 def test_import_registers_the_livekit_plugin() -> None:

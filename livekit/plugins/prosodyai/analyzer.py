@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 import uuid
 from collections.abc import AsyncIterator, Mapping
@@ -30,19 +29,15 @@ class ProsodyAnalyzer:
         session_id: str | None = None,
         sample_rate: int = 16_000,
         source: str = "livekit",
-        max_reconnects: int = 3,
         _transport: _MessageTransport | None = None,
     ) -> None:
         if sample_rate <= 0:
             raise ValueError("sample_rate must be positive")
-        if max_reconnects < 1:
-            raise ValueError("max_reconnects must be at least 1")
         self._api_key = api_key or os.environ.get("PROSODY_API_KEY", "")
         self._base_url = base_url.rstrip("/")
         self._session_id = session_id or f"livekit-{uuid.uuid4().hex}"
         self._sample_rate = sample_rate
         self._source = source
-        self._max_reconnects = max_reconnects
         self._transport = _transport
         self.conversation = Conversation(session_id=self._session_id)
 
@@ -64,18 +59,11 @@ class ProsodyAnalyzer:
         if not self._api_key:
             raise RuntimeError("PROSODY_API_KEY is required")
 
-        for attempt in range(self._max_reconnects):
-            transport = self._transport or self._make_transport()
-            try:
-                async for message in transport.messages(track):
-                    event = self.apply_message(message)
-                    if event is not None:
-                        yield event
-                return
-            except (ConnectionError, OSError):
-                if attempt + 1 >= self._max_reconnects:
-                    raise
-                await asyncio.sleep(0.5 * (2**attempt))
+        transport = self._transport or self._make_transport()
+        async for message in transport.messages(track):
+            event = self.apply_message(message)
+            if event is not None:
+                yield event
 
     def _make_transport(self) -> RealtimeTransport:
         return RealtimeTransport(

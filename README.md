@@ -73,8 +73,8 @@ async def analyze_track(track: rtc.AudioTrack) -> prosodyai.Conversation:
 ```
 
 `track` is a subscribed `rtc.AudioTrack` from the room your agent has joined. The analyzer owns
-audio capture, encoding, authentication, reconnects, event ordering, and its typed
-`Conversation`.
+audio capture, encoding, authentication, event ordering, and its typed `Conversation`. Transport
+failures are raised to your application so it can decide whether to replace the track or session.
 
 ## Conversation API
 
@@ -120,7 +120,6 @@ prosodyai.ProsodyAnalyzer(
     session_id=None,  # generated when omitted
     sample_rate=16_000,
     source="livekit",
-    max_reconnects=3,
 )
 ```
 
