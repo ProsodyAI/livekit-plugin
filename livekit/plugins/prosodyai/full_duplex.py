@@ -35,9 +35,22 @@ from .wire import (
     RoomEventType,
     TranscriptDelta,
     TranscriptEvent,
+    parse_conversation_event,
     parse_gateway_model_event,
     parse_identity_payload,
     parse_transcript_payload,
+)
+from .wire import (
+    ConversationBargeInEvent as BargeInEvent,
+)
+from .wire import (
+    ConversationStateDeltaEvent as StateDeltaEvent,
+)
+from .wire import (
+    ConversationTurnBoundaryEvent as TurnBoundaryEvent,
+)
+from .wire import (
+    ConversationWireEvent as ConversationEvent,
 )
 from .wire import (
     GatewayIdentityResolvedEvent as IdentityResolvedEvent,
@@ -55,6 +68,8 @@ from .wire import (
 __all__ = [
     "GATEWAY_FRAME_SAMPLES",
     "GATEWAY_SAMPLE_RATE",
+    "BargeInEvent",
+    "ConversationEvent",
     "FullDuplexBridge",
     "FullDuplexBridgeConfig",
     "GatewayConnection",
@@ -66,9 +81,11 @@ __all__ = [
     "NewSpeakerEvent",
     "ReadyEvent",
     "SpeakerChangeEvent",
+    "StateDeltaEvent",
     "TextEvent",
     "TranscriptDelta",
     "TranscriptEvent",
+    "TurnBoundaryEvent",
     "gateway_ws_url",
     "parse_control_event",
 ]
@@ -97,7 +114,14 @@ class TextEvent:
         return {"type": self.TYPE.value, **asdict(self)}
 
 
-GatewayEvent = ReadyEvent | TextEvent | IdentityEvent | TranscriptEvent | ModelEvent
+GatewayEvent = (
+    ReadyEvent
+    | TextEvent
+    | IdentityEvent
+    | TranscriptEvent
+    | ModelEvent
+    | ConversationEvent
+)
 
 
 def parse_control_event(kind: int, payload: bytes) -> GatewayEvent | None:
@@ -120,7 +144,15 @@ def parse_control_event(kind: int, payload: bytes) -> GatewayEvent | None:
     if not isinstance(frame, dict):
         return None
     if kind == KIND_EVENT:
-        return parse_gateway_model_event(frame)
+        # The 0x06 channel carries two committed families: the gateway's
+        # relabeled tracker events (``prosodyai.*``, ``timestamp_ms``) and
+        # the learned deciders' conversation events relayed verbatim in the
+        # model wire's own shape (``state_delta``, ``turn_boundary``,
+        # ``barge_in``; ``frame_ms``/``commit_ms``).
+        model_event = parse_gateway_model_event(frame)
+        if model_event is not None:
+            return model_event
+        return parse_conversation_event(frame)
     if kind == KIND_TRANSCRIPT:
         return parse_transcript_payload(frame)
     return parse_identity_payload(frame)

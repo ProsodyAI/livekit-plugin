@@ -5,6 +5,8 @@ Inference runs server-side; this plugin is pure I/O. ``RealtimeModel`` and
 """
 
 from .full_duplex import (
+    BargeInEvent,
+    ConversationEvent,
     FullDuplexBridge,
     FullDuplexBridgeConfig,
     GatewayConnection,
@@ -16,9 +18,11 @@ from .full_duplex import (
     NewSpeakerEvent,
     ReadyEvent,
     SpeakerChangeEvent,
+    StateDeltaEvent,
     TextEvent,
     TranscriptDelta,
     TranscriptEvent,
+    TurnBoundaryEvent,
     gateway_ws_url,
     parse_control_event,
 )
@@ -29,6 +33,8 @@ from .realtime import (
 from .version import __version__
 
 __all__ = [
+    "BargeInEvent",
+    "ConversationEvent",
     "FullDuplexBridge",
     "FullDuplexBridgeConfig",
     "GatewayConnection",
@@ -42,9 +48,11 @@ __all__ = [
     "RealtimeModel",
     "RealtimeSession",
     "SpeakerChangeEvent",
+    "StateDeltaEvent",
     "TextEvent",
     "TranscriptDelta",
     "TranscriptEvent",
+    "TurnBoundaryEvent",
     "gateway_ws_url",
     "parse_control_event",
     "__version__",
