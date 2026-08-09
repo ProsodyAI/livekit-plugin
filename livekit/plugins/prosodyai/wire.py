@@ -4,17 +4,8 @@ This module is the canonical declaration of the model-to-consumer event
 vocabulary: the event type strings, the field names, and the typed shapes
 that every parse and serialize site derives from.
 
-Three trees ship it. ``shared/wire.py`` is the source of truth;
-``api/models/wire.py`` and
-``packages/livekit/livekit/plugins/prosodyai/wire.py`` are byte-identical
-vendored copies written by ``ci/sync_wire.py`` (``deploy/model/wire.py``
-joins the sync targets when that tree opens up). Edit the source, run the
-sync script, and let ``api/tests/test_wire_vocabulary.py`` prove the copies
-agree. The module imports only the standard library so the API image, the
-Truss container, and the published LiveKit plugin can all vendor it
-unchanged.
-
-Two frozen wires are declared here.
+The module imports only the standard library. Two frozen wires are declared
+here.
 
 1. The model wire: committed tracker events on the prediction envelope's
    ``events`` list, sent by the deployment and parsed by the API. Fields

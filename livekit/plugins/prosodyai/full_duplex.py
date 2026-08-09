@@ -138,10 +138,14 @@ def gateway_ws_url(
     """Authenticated gateway WebSocket URL. ``base_url`` accepts http(s) or ws(s)."""
     key = (api_key or "").strip()
     if not key:
-        raise GatewayEnvError("The gateway requires an API key")
+        raise GatewayEnvError(
+            "gateway_ws_url received an empty api_key; pass the ProsodyAI API key for your organization"
+        )
     base = (base_url or "").strip().rstrip("/")
     if not base:
-        raise GatewayEnvError("The gateway requires a base URL")
+        raise GatewayEnvError(
+            "gateway_ws_url received an empty base_url; pass the gateway origin, e.g. https://api.prosodyai.app"
+        )
     if base.startswith("https://"):
         base = "wss://" + base[len("https://") :]
     elif base.startswith("http://"):
@@ -168,7 +172,10 @@ class GatewayConnection:
         environ = os.environ if env is None else env
         key = (api_key or environ.get("PROSODYAI_API_KEY") or "").strip()
         if not key:
-            raise GatewayEnvError("PROSODYAI_API_KEY is required (or pass api_key)")
+            raise GatewayEnvError(
+                "No gateway API key was found: PROSODYAI_API_KEY is unset and no "
+                "api_key argument was passed; set the environment variable or pass api_key"
+            )
         return cls(
             url=gateway_ws_url(
                 api_key=key,

@@ -25,10 +25,9 @@ import uuid
 from typing import Literal
 
 import numpy as np
+from livekit import rtc
 from livekit.agents import llm, utils
 from livekit.agents.types import NOT_GIVEN, NotGivenOr
-
-from livekit import rtc
 
 from .full_duplex import (
     GATEWAY_SAMPLE_RATE,
@@ -45,6 +44,7 @@ from .full_duplex import (
     TextEvent,
     TranscriptEvent,
 )
+from .wire import WireEventType
 
 __all__ = [
     "IdentityEvent",
@@ -53,12 +53,27 @@ __all__ = [
     "NewSpeakerEvent",
     "RealtimeModel",
     "RealtimeSession",
+    "SessionEventType",
     "SpeakerChangeEvent",
     "TextEvent",
     "TranscriptEvent",
 ]
 
 logger = logging.getLogger("livekit.plugins.prosodyai.realtime")
+
+
+class SessionEventType(WireEventType):
+    """The session event names this plugin emits, one per gateway readout.
+
+    Members equal their string values, so ``session.on("prosody_identity", …)``
+    and ``session.on(SessionEventType.IDENTITY, …)`` register the same handler.
+    """
+
+    IDENTITY = "prosody_identity"
+    TEXT = "prosody_text"
+    TRANSCRIPT = "prosody_transcript"
+    EVENT = "prosody_event"
+
 
 EventTypes = Literal[
     "prosody_identity",
@@ -92,9 +107,9 @@ class RealtimeModel(llm.RealtimeModel):
                 manual_function_calls=False,
             )
         )
-        # The one environment touch in this plugin, and it happens here — at
-        # construction — so a missing key fails the worker at startup, never
-        # a live conversation at its first audio frame.
+        # The one environment touch in this plugin, and it happens here at
+        # construction, so a missing key fails the worker at startup instead
+        # of failing a live conversation at its first audio frame.
         self._connection = connection or GatewayConnection.from_environment(
             base_url=base_url, api_key=api_key
         )
@@ -110,7 +125,7 @@ class RealtimeModel(llm.RealtimeModel):
 
     @property
     def sessions(self) -> list["RealtimeSession"]:
-        """Sessions created so far — how a worker reaches the identity events
+        """Sessions created so far: how a worker reaches the identity events
         after handing the model to an ``AgentSession``."""
         return list(self._sessions)
 
@@ -210,15 +225,15 @@ class RealtimeSession(llm.RealtimeSession[EventTypes]):
                 self._text_ch.send_nowait(event.text)
                 # Also emitted as a session event so applications can consume
                 # the text without reading the generation's text stream.
-                self.emit("prosody_text", event)
+                self.emit(SessionEventType.TEXT.value, event)
         elif isinstance(event, TranscriptEvent):
             self._on_transcript(event)
         elif isinstance(event, (SpeakerChangeEvent, NewSpeakerEvent, IdentityResolvedEvent)):
             # One committed model event off the gateway's event channel,
-            # relayed typed and verbatim — retrodictive timestamp included.
-            self.emit("prosody_event", event)
+            # relayed typed and verbatim, retrodictive timestamp included.
+            self.emit(SessionEventType.EVENT.value, event)
         elif isinstance(event, IdentityEvent):
-            self.emit("prosody_identity", event)
+            self.emit(SessionEventType.IDENTITY.value, event)
 
     def _on_transcript(self, event: TranscriptEvent) -> None:
         """Relay one committed span of caller words, twice.
@@ -230,7 +245,7 @@ class RealtimeSession(llm.RealtimeSession[EventTypes]):
         final because the model committed it; there is no client-side turn
         machinery here deciding when a thought ended.
         """
-        self.emit("prosody_transcript", event)
+        self.emit(SessionEventType.TRANSCRIPT.value, event)
         text = " ".join(delta.text for delta in event.deltas if delta.text).strip()
         if not text:
             return
@@ -313,7 +328,9 @@ class RealtimeSession(llm.RealtimeSession[EventTypes]):
         )
         future.set_exception(
             llm.RealtimeError(
-                "The model is full-duplex: replies are continuous, generate_reply() has no meaning"
+                "generate_reply() was called on a full-duplex session that streams "
+                "replies continuously; consume the session's single open generation "
+                "and drop the generate_reply() call"
             )
         )
         return future
