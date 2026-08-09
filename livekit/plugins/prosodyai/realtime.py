@@ -25,9 +25,10 @@ import uuid
 from typing import Literal
 
 import numpy as np
-from livekit import rtc
 from livekit.agents import llm, utils
 from livekit.agents.types import NOT_GIVEN, NotGivenOr
+
+from livekit import rtc
 
 from .full_duplex import (
     GATEWAY_SAMPLE_RATE,
