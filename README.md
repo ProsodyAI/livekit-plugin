@@ -1,16 +1,29 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/livekit/agents/main/.github/banner_dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/livekit/agents/main/.github/banner_light.png">
-  <img style="width:100%;" alt="The LiveKit Agents banner" src="https://raw.githubusercontent.com/livekit/agents/main/.github/banner_light.png">
-</picture>
+<p align="center">
+  <a href="https://prosodyai.app">
+    <img src="https://prosodyai.app/logo.png" alt="ProsodyAI" width="88" />
+  </a>
+  &nbsp;&nbsp;&nbsp;
+  <a href="https://livekit.io">
+    <img src="https://avatars.githubusercontent.com/u/69438833?s=176" alt="LiveKit" width="88" />
+  </a>
+</p>
 
-# ProsodyAI for LiveKit Agents
+<h1 align="center">ProsodyAI for LiveKit Agents</h1>
 
-**Full-duplex voice agents with persistent speaker identity.**
+<p align="center"><strong>Full-duplex voice agents with persistent speaker identity.</strong></p>
 
-[![LiveKit Agents](https://img.shields.io/badge/LiveKit-Agents-1FD5F9?logo=livekit&logoColor=white)](https://docs.livekit.io/agents/)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)](https://pypi.org/project/livekit-plugins-prosodyai/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+<p align="center">
+  <a href="https://prosodyai.app">Product</a> ·
+  <a href="https://prosodyai.app/docs">Docs</a> ·
+  <a href="https://docs.livekit.io/agents/">LiveKit Agents</a> ·
+  <a href="https://pypi.org/project/livekit-plugins-prosodyai/">PyPI</a>
+</p>
+
+<p align="center">
+  <a href="https://docs.livekit.io/agents/"><img src="https://img.shields.io/badge/LiveKit-Agents-1FD5F9?logo=livekit&logoColor=white" alt="LiveKit Agents" /></a>
+  <a href="https://pypi.org/project/livekit-plugins-prosodyai/"><img src="https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white" alt="Python 3.10+" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license" /></a>
+</p>
 
 One continuous speech model carries the whole call. The agent listens and
 speaks on the same open connection, with no turn detector and no
@@ -18,13 +31,6 @@ STT → LLM → TTS pipeline: audio advances the model's recurrence, and respons
 timing emerges from continuous generation. Every voice on the call advances
 its own recurrent speaker state, so the agent knows who is speaking, notices
 when the floor changes, and recognizes a returning caller across hangups.
-
-| | |
-| --- | --- |
-| **Product** | [prosodyai.app](https://prosodyai.app) |
-| **Docs** | [prosodyai.app/docs](https://prosodyai.app/docs) |
-| **LiveKit Agents** | [docs.livekit.io/agents](https://docs.livekit.io/agents/) |
-| **Package** | `livekit-plugins-prosodyai` |
 
 ## Install
 
