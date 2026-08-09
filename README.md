@@ -1,135 +1,127 @@
-<p align="center">
-  <a href="https://prosodyai.app">
-    <img src="https://prosodyai.app/logo.png" alt="ProsodyAI" width="88" />
-  </a>
-</p>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/livekit/agents/main/.github/banner_dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/livekit/agents/main/.github/banner_light.png">
+  <img style="width:100%;" alt="The LiveKit Agents banner" src="https://raw.githubusercontent.com/livekit/agents/main/.github/banner_light.png">
+</picture>
 
-<h1 align="center">ProsodyAI for LiveKit Agents</h1>
+# ProsodyAI for LiveKit Agents
 
-<p align="center"><strong>Speech to speech infrastructure.</strong></p>
+**Full-duplex voice agents with persistent speaker identity.**
 
-<p align="center">
-  <a href="https://prosodyai.app">Product</a> ·
-  <a href="https://prosodyai.app/docs/livekit">Docs</a> ·
-  <a href="https://prosodyai.app/docs/reference">API reference</a> ·
-  <a href="https://github.com/ProsodyAI/livekit/issues">Issues</a>
-</p>
+[![LiveKit Agents](https://img.shields.io/badge/LiveKit-Agents-1FD5F9?logo=livekit&logoColor=white)](https://docs.livekit.io/agents/)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)](https://pypi.org/project/livekit-plugins-prosodyai/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-`livekit-plugins-prosodyai` adds real-time acoustic speech analysis and recording-local
-diarization to LiveKit Agents. Pass it a subscribed LiveKit audio track and receive ordered
-transcript turns, speaker-scoped acoustic measurements, frame trajectories, and same-speaker
-deltas.
+One continuous speech model carries the whole call. The agent listens and
+speaks on the same open connection, with no turn detector and no
+STT → LLM → TTS pipeline: audio advances the model's recurrence, and response
+timing emerges from continuous generation. Every voice on the call advances
+its own recurrent speaker state, so the agent knows who is speaking, notices
+when the floor changes, and recognizes a returning caller across hangups.
 
-This is an auxiliary LiveKit Agents plugin. It does not replace the `stt`, `llm`, or `tts`
-component selected for an `AgentSession`.
+| | |
+| --- | --- |
+| **Product** | [prosodyai.app](https://prosodyai.app) |
+| **Docs** | [prosodyai.app/docs](https://prosodyai.app/docs) |
+| **LiveKit Agents** | [docs.livekit.io/agents](https://docs.livekit.io/agents/) |
+| **Package** | `livekit-plugins-prosodyai` |
 
 ## Install
 
-The package is public but has not completed its first PyPI release. Install the current `main`
-commit directly:
-
 ```bash
-python -m pip install \
-  "livekit-plugins-prosodyai @ git+https://github.com/ProsodyAI/livekit.git@main"
+pip install "livekit-plugins-prosodyai[duplex]"
+export PROSODYAI_API_KEY=psk_...
 ```
 
-The audio encoder requires the `ffmpeg` executable on `PATH`.
+The duplex transport uses `sphn` for 24 kHz Opus audio.
 
-## Authenticate
+## A full-duplex agent in six lines
 
-Pass an organization API key directly or set it in the environment:
-
-```bash
-export PROSODY_API_KEY="your-api-key"
-```
-
-## Analyze a LiveKit track
-
-LiveKit plugins use the `livekit.plugins.<provider>` namespace:
+`RealtimeModel` plugs the ProsodyAI speech model into a LiveKit
+`AgentSession`. The gateway owns speech generation, response timing,
+barge-in, speaker lanes, and memory.
 
 ```python
-import os
-
-from livekit import rtc
+from livekit.agents import AgentSession
 from livekit.plugins import prosodyai
 
+model = prosodyai.RealtimeModel()
+session = AgentSession(llm=model)
 
-async def analyze_track(track: rtc.AudioTrack) -> prosodyai.Conversation:
-    analyzer = prosodyai.ProsodyAnalyzer(
-        api_key=os.environ["PROSODY_API_KEY"],
-        session_id="call-12345",
+await session.start(room=ctx.room)
+```
+
+The model advertises continuous full-duplex capabilities to LiveKit. Audio
+advances the model recurrence for the life of the session.
+
+## Persistent speaker identity
+
+Identity is a committed model fact on the wire. Recording-local lanes look
+like `speaker_0` and `speaker_1`; a resolved `person_id` is durable across
+sessions for the organization that enrolled the voice. When a known voice
+comes back, the model resumes that person's state and says so.
+
+```python
+realtime = model.sessions[-1]
+
+
+@realtime.on("prosody_identity")
+def on_identity(event):
+    print(event.speaker_id, event.person_id, event.display_name)
+```
+
+## Consume model events
+
+Each `RealtimeSession` emits typed events from the gateway:
+
+- `prosody_transcript` carries committed words with `speaker_id`, `start_ms`,
+  and `end_ms`.
+- `prosody_event` carries `SpeakerChangeEvent`, `NewSpeakerEvent`, or
+  `IdentityResolvedEvent`.
+- `prosody_identity` announces a committed returning person.
+- `prosody_text` carries the model's generated text stream.
+
+```python
+@realtime.on("prosody_event")
+def on_model_event(event):
+    print(event.to_dict())
+```
+
+Speaker events are model commitments. Their timestamps point to the relevant
+audio position, including cases where the model resolves a lane after more
+audio arrives.
+
+## Use the bridge directly
+
+`FullDuplexBridge` is the lower-level integration for workers that publish and
+subscribe to LiveKit tracks themselves.
+
+```python
+from livekit.plugins.prosodyai import (
+    FullDuplexBridge,
+    FullDuplexBridgeConfig,
+    GatewayConnection,
+)
+
+connection = GatewayConnection.from_environment()
+bridge = FullDuplexBridge(
+    FullDuplexBridgeConfig(
+        url=connection.url,
+        room_sample_rate=24_000,
+        publish_sample_rate=24_000,
     )
+)
 
-    async for event in analyzer.analyze_track(track):
-        window = event.window
-        print(window.speaker_id)
-        print(window.get_feature("rms_dbfs"))
-        print(window.get_delta("rms_db_change"))
-
-        for point in window.get_frame_series("f0_hz"):
-            print(point.timestamp_ms, point.value)
-
-    return analyzer.conversation
-```
-
-`track` is a subscribed `rtc.AudioTrack` from the room your agent has joined. The analyzer owns
-audio capture, encoding, authentication, event ordering, and its typed `Conversation`. Transport
-failures are raised to your application so it can decide whether to replace the track or session.
-
-## Conversation API
-
-```python
-conversation.get_transcript()
-conversation.get_turns()
-conversation.get_turn(0)
-conversation.get_speakers()
-
-conversation.get_acoustics()
-conversation.get_acoustics("speaker_0")
-conversation.get_acoustic_window(0)
-
-conversation.get_feature_series("rms_dbfs")
-conversation.get_frame_series("voiced_probability", "speaker_0")
-conversation.get_deltas("speaker_0")
-```
-
-The typed surface exposes:
-
-- final and interim transcript turns on the same analysis clock
-- recording-local `speaker_id` values
-- window summaries for RMS and peak level, pitch, pitch range and slope, spectral tilt, voicing,
-  pauses, clipping, and voice-onset rate
-- frame-level acoustic trajectories at the rate provided by the API
-- signed `acoustic_change` values and the exact same-speaker reference used for each delta
-
-Unavailable measurements are `None`, not zero. `acoustic_change.reference` states what each
-signed delta is measured against.
-
-## Speaker scope
-
-`speaker_0`, `speaker_1`, and similar labels belong to one recording. They support turns, timing,
-and same-speaker acoustic change inside that conversation. This public plugin does not return
-voiceprints, embedding vectors, or durable identity across rooms.
-
-## Configuration
-
-```python
-prosodyai.ProsodyAnalyzer(
-    api_key=None,  # falls back to PROSODY_API_KEY
-    base_url="https://api.prosodyai.app",
-    session_id=None,  # generated when omitted
-    sample_rate=16_000,
-    source="livekit",
+await bridge.run(
+    uplink_pcm16(),
+    on_downlink_pcm16=publish_pcm16,
+    on_event=handle_gateway_event,
 )
 ```
 
-The API key is redacted from `repr(analyzer)`.
-
-## Development
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for tests, package checks, and the protected release path.
-Report security issues through [SECURITY.md](SECURITY.md).
+`uplink_pcm16()` yields little-endian mono PCM16. The bridge converts it to the
+gateway's Opus stream and returns little-endian mono PCM16 for publication.
 
 ## License
 
-MIT © [Prosody AI, Inc.](https://prosodyai.app)
+MIT © [ProsodyAI](https://prosodyai.app)

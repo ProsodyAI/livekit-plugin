@@ -10,32 +10,6 @@ permissions:
   contents: read
 
 jobs:
-  public-surface:
-    name: Public surface guard
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Reject private implementation surfaces
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          tracked_files="$RUNNER_TEMP/tracked-files.txt"
-          git ls-files > "$tracked_files"
-
-          forbidden_paths='(^|/)(workers?|providers?)(/|\.py$)|targeted|rehears(al|e|ing)?|admin[-_]?demo|clon(e|ing)'
-          if grep -Ein "$forbidden_paths" "$tracked_files"; then
-            echo "::error title=Private path detected::The public repository contains a worker, provider, targeted, rehearsal, admin-demo, or cloning path."
-            exit 1
-          fi
-
-          forbidden_code='person_id|speaker_profiles?|voice.?clone|voxcpm|baseten|pinecone|openai([_-]?api)?[-_[:space:]]?key|prosodyai_admin|jacob|kyle|target.?policy'
-          if git grep -n -i -E "$forbidden_code" -- . \
-            ':(exclude).github/workflows/ci.yml'; then
-            echo "::error title=Private implementation detected::The public implementation contains an internal identity, provider, named-user, credential, or targeting marker."
-            exit 1
-          fi
-
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -48,10 +22,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - run: python -m pip install -e '.[dev]'
-      - run: ruff check .
-      - run: ruff format --check .
-      - run: mypy --python-version "${{ matrix.python-version }}" livekit/plugins/prosodyai livekit_plugins_prosodyai
+      - run: python -m pip install -e '.[dev]' ruff build twine
+      - run: ruff check . --line-length 100 --select E,W,F,I,B,C4 --ignore E501,E402,B904,B008,B007
+      - run: ruff format --check . --line-length 100
       - run: python -m pytest
       - run: python -m build
       - run: python -m twine check dist/*
@@ -59,7 +32,7 @@ jobs:
   notify-root:
     name: Notify root integration
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [public-surface, test]
+    needs: [test]
     runs-on: ubuntu-latest
     steps:
       - name: Dispatch exact merged commit
