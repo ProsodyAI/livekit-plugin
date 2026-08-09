@@ -12,13 +12,16 @@ disclosure privately.
 
 ## API keys and audio
 
-Load `PROSODY_API_KEY` from the environment or a secret manager. The analyzer
-redacts the key from its representation, but application logs and exception
-handlers remain the developer's responsibility.
+Load `PROSODYAI_API_KEY` from the environment or a secret manager. The plugin
+reads it in exactly one place (`GatewayConnection.from_environment`) and never
+logs it; application logs and exception handlers remain the developer's
+responsibility.
 
-Audio supplied to `ProsodyAnalyzer.analyze_track()` is sent to the configured
-ProsodyAI API for analysis. Use the production HTTPS endpoint unless you are
-testing against a trusted local service.
+Audio flows over one WebSocket to the configured ProsodyAI gateway for the
+life of the session. Use the production endpoint unless you are testing
+against a trusted local service.
 
-The public SDK exposes recording-local speaker labels. It does not expose raw
-speaker embeddings or durable speaker identity.
+The plugin exposes recording-local speaker labels and, for voices the
+organization has enrolled, committed `person_id` identity facts scoped to
+that organization. Raw speaker embeddings, similarity scores, and
+probabilities never cross the wire.
