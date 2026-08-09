@@ -15,6 +15,8 @@ import pytest
 
 pytest.importorskip("sphn", reason="Opus bridging needs sphn")
 import sphn
+from websockets.asyncio.server import serve
+
 from livekit import rtc
 from livekit.plugins.prosodyai.full_duplex import (
     GATEWAY_FRAME_SAMPLES,
@@ -33,7 +35,6 @@ from livekit.plugins.prosodyai.realtime import (
     TextEvent,
     TranscriptEvent,
 )
-from websockets.asyncio.server import serve
 
 ROOM_SAMPLE_RATE = 16_000
 FRAME_SAMPLES = ROOM_SAMPLE_RATE * 20 // 1000  # 20 ms room frames
@@ -41,7 +42,7 @@ FRAME_SAMPLES = ROOM_SAMPLE_RATE * 20 // 1000  # 20 ms room frames
 IDENTITY = {
     "speaker_id": "speaker_0",
     "person_id": "person:158a2b2e",
-    "display_name": "Jacob",
+    "display_name": "Ada",
     "is_returning": True,
     "recognized_at_ms": 3000,
 }
@@ -64,7 +65,7 @@ SPEAKER_CHANGE = {
     "speaker_id": "speaker_0",
     "previous_speaker_id": None,
     "person_id": "person:158a2b2e",
-    "display_name": "Jacob",
+    "display_name": "Ada",
     "is_agent": False,
 }
 
@@ -79,24 +80,15 @@ async def _fake_gateway(websocket) -> None:
         if message[0] != KIND_AUDIO or responded:
             continue
         responded = True
-        await websocket.send(bytes([KIND_TEXT]) + b"hello jacob")
-        await websocket.send(
-            bytes([KIND_IDENTITY]) + json.dumps(IDENTITY).encode("utf-8")
-        )
-        await websocket.send(
-            bytes([KIND_TRANSCRIPT]) + json.dumps(TRANSCRIPT).encode("utf-8")
-        )
-        await websocket.send(
-            bytes([KIND_EVENT]) + json.dumps(SPEAKER_CHANGE).encode("utf-8")
-        )
-        clock = (
-            np.arange(4 * GATEWAY_FRAME_SAMPLES, dtype=np.float32)
-            / GATEWAY_SAMPLE_RATE
-        )
+        await websocket.send(bytes([KIND_TEXT]) + b"hello there")
+        await websocket.send(bytes([KIND_IDENTITY]) + json.dumps(IDENTITY).encode("utf-8"))
+        await websocket.send(bytes([KIND_TRANSCRIPT]) + json.dumps(TRANSCRIPT).encode("utf-8"))
+        await websocket.send(bytes([KIND_EVENT]) + json.dumps(SPEAKER_CHANGE).encode("utf-8"))
+        clock = np.arange(4 * GATEWAY_FRAME_SAMPLES, dtype=np.float32) / GATEWAY_SAMPLE_RATE
         tone = 0.2 * np.sin(2.0 * np.pi * 440.0 * clock).astype(np.float32)
         for index in range(4):
             packet = writer.append_pcm(
-                tone[index * GATEWAY_FRAME_SAMPLES:(index + 1) * GATEWAY_FRAME_SAMPLES]
+                tone[index * GATEWAY_FRAME_SAMPLES : (index + 1) * GATEWAY_FRAME_SAMPLES]
             )
             if packet:
                 await websocket.send(bytes([KIND_AUDIO]) + packet)
@@ -140,59 +132,45 @@ async def test_full_duplex_session_against_the_wire_protocol(monkeypatch):
 
         generation = await asyncio.wait_for(generations.get(), timeout=10.0)
         assert generation.user_initiated is False
-        message = await asyncio.wait_for(
-            generation.message_stream.__anext__(), timeout=5.0
-        )
+        message = await asyncio.wait_for(generation.message_stream.__anext__(), timeout=5.0)
         assert await message.modalities == ["audio", "text"]
 
-        text = await asyncio.wait_for(
-            message.text_stream.__anext__(), timeout=10.0
-        )
-        assert text == "hello jacob"
+        text = await asyncio.wait_for(message.text_stream.__anext__(), timeout=10.0)
+        assert text == "hello there"
 
-        frame = await asyncio.wait_for(
-            message.audio_stream.__anext__(), timeout=10.0
-        )
+        frame = await asyncio.wait_for(message.audio_stream.__anext__(), timeout=10.0)
         assert frame.sample_rate == GATEWAY_SAMPLE_RATE
         assert frame.samples_per_channel > 0
 
-        identity: IdentityEvent = await asyncio.wait_for(
-            identities.get(), timeout=10.0
-        )
+        identity: IdentityEvent = await asyncio.wait_for(identities.get(), timeout=10.0)
         assert identity.person_id == IDENTITY["person_id"]
-        assert identity.display_name == "Jacob"
+        assert identity.display_name == "Ada"
         assert identity.is_returning is True
         assert identity.recognized_at_ms == 3000
         assert identity.to_dict() == {
-            "type": "jarvis.identity",
+            "type": "prosodyai.identity",
             "speaker_id": identity.speaker_id,
             "person_id": IDENTITY["person_id"],
-            "display_name": "Jacob",
+            "display_name": "Ada",
             "is_returning": True,
             "recognized_at_ms": 3000,
         }
 
-        token: TextEvent = await asyncio.wait_for(
-            tokens.get(), timeout=10.0
-        )
-        assert token.text == "hello jacob"
+        token: TextEvent = await asyncio.wait_for(tokens.get(), timeout=10.0)
+        assert token.text == "hello there"
 
-        transcript: TranscriptEvent = await asyncio.wait_for(
-            transcripts.get(), timeout=10.0
-        )
+        transcript: TranscriptEvent = await asyncio.wait_for(transcripts.get(), timeout=10.0)
         assert transcript.speaker_id == "speaker_0"
         assert [d.text for d in transcript.deltas] == ["hello", "there"]
         assert transcript.deltas[0].start_ms == 0
         assert transcript.deltas[-1].end_ms == 640
 
-        change: SpeakerChangeEvent = await asyncio.wait_for(
-            model_events.get(), timeout=10.0
-        )
+        change: SpeakerChangeEvent = await asyncio.wait_for(model_events.get(), timeout=10.0)
         assert isinstance(change, SpeakerChangeEvent)
         assert change.timestamp_ms == 4000
         assert change.speaker_id == "speaker_0"
         assert change.previous_speaker_id is None
-        assert change.display_name == "Jacob"
+        assert change.display_name == "Ada"
         assert change.is_agent is False
 
         await session.aclose()

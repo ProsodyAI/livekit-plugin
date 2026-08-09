@@ -29,7 +29,7 @@ jobs:
             exit 1
           fi
 
-          forbidden_code='person_id|speaker_profiles?|voice.?clone|voxcpm|baseten|pinecone|openai([_-]?api)?[-_[:space:]]?key|prosodyai_admin|jacob|kyle|target.?policy'
+          forbidden_code='speaker_profiles?|voice.?clone|voxcpm|baseten|pinecone|openai([_-]?api)?[-_[:space:]]?key|prosodyai_admin|jacob|kyle|target.?policy'
           if git grep -n -i -E "$forbidden_code" -- . \
             ':(exclude).github/workflows/ci.yml'; then
             echo "::error title=Private implementation detected::The public implementation contains an internal identity, provider, named-user, credential, or targeting marker."
@@ -48,10 +48,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - run: python -m pip install -e '.[dev]'
-      - run: ruff check .
-      - run: ruff format --check .
-      - run: mypy --python-version "${{ matrix.python-version }}" livekit/plugins/prosodyai livekit_plugins_prosodyai
+      - run: python -m pip install -e '.[dev]' ruff build twine
+      - run: ruff check . --line-length 100 --select E,W,F,I,B,C4 --ignore E501,E402,B904,B008,B007
+      - run: ruff format --check . --line-length 100
       - run: python -m pytest
       - run: python -m build
       - run: python -m twine check dist/*

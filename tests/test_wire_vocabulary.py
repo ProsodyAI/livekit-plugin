@@ -12,13 +12,7 @@ from pathlib import Path
 
 import pytest
 
-PLUGIN_COPY = (
-    Path(__file__).resolve().parents[1]
-    / "livekit"
-    / "plugins"
-    / "prosodyai"
-    / "wire.py"
-)
+PLUGIN_COPY = Path(__file__).resolve().parents[1] / "livekit" / "plugins" / "prosodyai" / "wire.py"
 
 
 def _canonical_source() -> Path | None:
@@ -34,6 +28,5 @@ def test_vendored_wire_matches_the_canonical_source() -> None:
     if source is None:
         pytest.skip("canonical shared/wire.py unavailable outside the monorepo")
     assert PLUGIN_COPY.read_bytes() == source.read_bytes(), (
-        "the plugin's wire.py drifted from shared/wire.py; "
-        "run: python ci/sync_wire.py"
+        "the plugin's wire.py drifted from shared/wire.py; run: python ci/sync_wire.py"
     )

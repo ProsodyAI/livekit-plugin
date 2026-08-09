@@ -27,6 +27,4 @@ def resample_float32(samples: np.ndarray, src_rate: int, dst_rate: int) -> np.nd
 def resample_pcm16_le(pcm: bytes, src_rate: int, dst_rate: int) -> bytes:
     if src_rate == dst_rate or not pcm:
         return pcm
-    return float32_to_pcm16_le(
-        resample_float32(pcm16_le_to_float32(pcm), src_rate, dst_rate)
-    )
+    return float32_to_pcm16_le(resample_float32(pcm16_le_to_float32(pcm), src_rate, dst_rate))

@@ -20,13 +20,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from typing import Literal
 
 import numpy as np
-from livekit import rtc
 from livekit.agents import llm, utils
 from livekit.agents.types import NOT_GIVEN, NotGivenOr
+
+from livekit import rtc
 
 from .full_duplex import (
     GATEWAY_SAMPLE_RATE,
@@ -112,9 +114,7 @@ class RealtimeModel(llm.RealtimeModel):
         after handing the model to an ``AgentSession``."""
         return list(self._sessions)
 
-    def session(
-        self, *, turn_detection_disabled: bool = False
-    ) -> "RealtimeSession":
+    def session(self, *, turn_detection_disabled: bool = False) -> "RealtimeSession":
         # The runtime contains no turn detector. This framework compatibility
         # parameter is intentionally inert.
         del turn_detection_disabled
@@ -123,9 +123,7 @@ class RealtimeModel(llm.RealtimeModel):
         return sess
 
     async def aclose(self) -> None:
-        await asyncio.gather(
-            *(sess.aclose() for sess in self._sessions), return_exceptions=True
-        )
+        await asyncio.gather(*(sess.aclose() for sess in self._sessions), return_exceptions=True)
         self._sessions.clear()
 
 
@@ -154,11 +152,7 @@ class RealtimeSession(llm.RealtimeSession[EventTypes]):
             self._start_bridge(room_sample_rate=frame.sample_rate)
         samples = np.frombuffer(frame.data, dtype=np.int16)
         if frame.num_channels > 1:
-            samples = (
-                samples.reshape(-1, frame.num_channels)
-                .mean(axis=1)
-                .astype(np.int16)
-            )
+            samples = samples.reshape(-1, frame.num_channels).mean(axis=1).astype(np.int16)
         try:
             self._uplink.send_nowait(samples.tobytes())
         except utils.aio.ChanClosed:
@@ -172,9 +166,7 @@ class RealtimeSession(llm.RealtimeSession[EventTypes]):
                 publish_sample_rate=GATEWAY_SAMPLE_RATE,
             )
         )
-        self._bridge_task = asyncio.create_task(
-            self._run_bridge(), name="duplex-realtime-bridge"
-        )
+        self._bridge_task = asyncio.create_task(self._run_bridge(), name="duplex-realtime-bridge")
 
     async def _run_bridge(self) -> None:
         assert self._bridge is not None
@@ -221,9 +213,7 @@ class RealtimeSession(llm.RealtimeSession[EventTypes]):
                 self.emit("prosody_text", event)
         elif isinstance(event, TranscriptEvent):
             self._on_transcript(event)
-        elif isinstance(
-            event, (SpeakerChangeEvent, NewSpeakerEvent, IdentityResolvedEvent)
-        ):
+        elif isinstance(event, (SpeakerChangeEvent, NewSpeakerEvent, IdentityResolvedEvent)):
             # One committed model event off the gateway's event channel,
             # relayed typed and verbatim — retrodictive timestamp included.
             self.emit("prosody_event", event)
@@ -305,9 +295,7 @@ class RealtimeSession(llm.RealtimeSession[EventTypes]):
     async def update_tools(self, tools) -> None:
         self._tools = llm.ToolContext(tools)
 
-    def update_options(
-        self, *, tool_choice: NotGivenOr[llm.ToolChoice | None] = NOT_GIVEN
-    ) -> None:
+    def update_options(self, *, tool_choice: NotGivenOr[llm.ToolChoice | None] = NOT_GIVEN) -> None:
         return None
 
     def push_video(self, frame: rtc.VideoFrame) -> None:
@@ -325,8 +313,7 @@ class RealtimeSession(llm.RealtimeSession[EventTypes]):
         )
         future.set_exception(
             llm.RealtimeError(
-                "The model is full-duplex: replies are continuous, "
-                "generate_reply() has no meaning"
+                "The model is full-duplex: replies are continuous, generate_reply() has no meaning"
             )
         )
         return future

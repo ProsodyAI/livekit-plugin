@@ -56,6 +56,7 @@ class WireEventType(str, Enum):
     def __str__(self) -> str:
         return self.value
 
+
 # ---------------------------------------------------------------------------
 # Gateway socket frame kinds: byte 0 of every caller frame.
 
@@ -178,6 +179,7 @@ these."""
 # tracker events and share nothing else. Every field is a committed fact on
 # the model's frame clock; the decision bands that produced the commit stay
 # inside the model.
+
 
 class ConversationEventType(WireEventType):
     """The learned event deciders' commitments, on the same envelope list."""
@@ -333,6 +335,7 @@ def parse_tracker_event(entry: Mapping[str, Any]) -> Optional[TrackerEvent]:
 # ---------------------------------------------------------------------------
 # The gateway wire: committed model events on the 0x06 caller frame.
 
+
 class GatewayEventType(WireEventType):
     """The committed model events the gateway serializes onto 0x06 frames."""
 
@@ -482,12 +485,13 @@ def parse_gateway_model_event(
 # republish the event, and the type strings below name those republished
 # events on the LiveKit data topic.
 
+
 class RoomEventType(WireEventType):
     """The republished event names on the LiveKit data topic."""
 
-    TEXT = "jarvis.text"
-    IDENTITY = "jarvis.identity"
-    TRANSCRIPT = "jarvis.transcript"
+    TEXT = "prosodyai.text"
+    IDENTITY = "prosodyai.identity"
+    TRANSCRIPT = "prosodyai.transcript"
 
 
 @dataclass(frozen=True)

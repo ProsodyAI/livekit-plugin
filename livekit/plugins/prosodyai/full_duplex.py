@@ -31,18 +31,47 @@ from .wire import (
     KIND_IDENTITY,
     KIND_TEXT,
     KIND_TRANSCRIPT,
-    GatewayIdentityResolvedEvent as IdentityResolvedEvent,
-    GatewayModelEvent as ModelEvent,
-    GatewayNewSpeakerEvent as NewSpeakerEvent,
-    GatewaySpeakerChangeEvent as SpeakerChangeEvent,
     IdentityEvent,
+    RoomEventType,
     TranscriptDelta,
     TranscriptEvent,
-    RoomEventType,
     parse_gateway_model_event,
     parse_identity_payload,
     parse_transcript_payload,
 )
+from .wire import (
+    GatewayIdentityResolvedEvent as IdentityResolvedEvent,
+)
+from .wire import (
+    GatewayModelEvent as ModelEvent,
+)
+from .wire import (
+    GatewayNewSpeakerEvent as NewSpeakerEvent,
+)
+from .wire import (
+    GatewaySpeakerChangeEvent as SpeakerChangeEvent,
+)
+
+__all__ = [
+    "GATEWAY_FRAME_SAMPLES",
+    "GATEWAY_SAMPLE_RATE",
+    "FullDuplexBridge",
+    "FullDuplexBridgeConfig",
+    "GatewayConnection",
+    "GatewayEnvError",
+    "GatewayEvent",
+    "IdentityEvent",
+    "IdentityResolvedEvent",
+    "ModelEvent",
+    "NewSpeakerEvent",
+    "ReadyEvent",
+    "SpeakerChangeEvent",
+    "TextEvent",
+    "TranscriptDelta",
+    "TranscriptEvent",
+    "gateway_ws_url",
+    "parse_control_event",
+]
 
 logger = logging.getLogger("livekit.plugins.prosodyai.full_duplex")
 
@@ -68,13 +97,7 @@ class TextEvent:
         return {"type": self.TYPE.value, **asdict(self)}
 
 
-GatewayEvent = (
-    ReadyEvent
-    | TextEvent
-    | IdentityEvent
-    | TranscriptEvent
-    | ModelEvent
-)
+GatewayEvent = ReadyEvent | TextEvent | IdentityEvent | TranscriptEvent | ModelEvent
 
 
 def parse_control_event(kind: int, payload: bytes) -> GatewayEvent | None:
@@ -145,9 +168,7 @@ class GatewayConnection:
         environ = os.environ if env is None else env
         key = (api_key or environ.get("PROSODYAI_API_KEY") or "").strip()
         if not key:
-            raise GatewayEnvError(
-                "PROSODYAI_API_KEY is required (or pass api_key)"
-            )
+            raise GatewayEnvError("PROSODYAI_API_KEY is required (or pass api_key)")
         return cls(
             url=gateway_ws_url(
                 api_key=key,
