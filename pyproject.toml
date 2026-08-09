@@ -1,84 +1,61 @@
 [build-system]
-requires = ["hatchling>=1.27"]
+requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
 name = "livekit-plugins-prosodyai"
-version = "0.2.0"
-description = "ProsodyAI acoustic speech analysis and recording-local diarization for LiveKit Agents"
+dynamic = ["version"]
+description = "ProsodyAI plugin for LiveKit Agents: full-duplex speech with persistent speaker identity"
 readme = "README.md"
-requires-python = ">=3.10,<3.15"
+requires-python = ">=3.10"
 license = "MIT"
-license-files = ["LICENSE"]
-authors = [{ name = "Prosody AI, Inc." }]
+authors = [{ name = "ProsodyAI", email = "support@prosodyai.app" }]
 keywords = [
-    "acoustics",
-    "audio",
-    "diarization",
+    "prosodyai",
+    "prosody",
     "livekit",
     "livekit-agents",
-    "prosodyai",
     "speech",
-    "voice-agents",
+    "acoustics",
+    "diarization",
+    "voice",
+    "realtime",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3.14",
-    "Typing :: Typed",
+    "Topic :: Multimedia :: Sound/Audio :: Analysis",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "livekit-agents>=1.6.8,<2",
-    "websockets>=16,<18",
+    "livekit>=1.1.13",
+    "livekit-agents>=1.6.6",
+    "websockets>=16",
 ]
 
 [project.optional-dependencies]
-dev = [
-    "build>=1.2",
-    "mypy>=1.15",
-    "numpy>=1.26,<2.5",
-    "pytest>=8",
-    "pytest-asyncio>=0.25",
-    "ruff>=0.11",
-    "twine>=5,<7",
+duplex = [
+    "numpy>=1.24",
+    "sphn>=0.1.4",
 ]
+dev = ["pytest", "pytest-asyncio", "numpy>=1.24"]
 
 [project.urls]
 Homepage = "https://prosodyai.app"
-Source = "https://github.com/ProsodyAI/livekit"
-Issues = "https://github.com/ProsodyAI/livekit/issues"
-Documentation = "https://prosodyai.app/docs/livekit"
+Documentation = "https://prosodyai.app/docs"
+Repository = "https://github.com/ProsodyAI/prosodyai"
+"Bug Tracker" = "https://github.com/ProsodyAI/prosodyai/issues"
+LiveKit = "https://livekit.io"
 "LiveKit Agents" = "https://docs.livekit.io/agents"
+PyPI = "https://pypi.org/project/livekit-plugins-prosodyai/"
+
+[tool.hatch.version]
+path = "livekit/plugins/prosodyai/version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["livekit", "livekit_plugins_prosodyai"]
 
-[tool.ruff]
-line-length = 100
-target-version = "py310"
-
-[tool.ruff.lint]
-select = ["B", "C4", "E", "F", "I", "UP", "W"]
-ignore = ["E501"]
-
-[tool.mypy]
-python_version = "3.10"
-strict = true
-warn_unreachable = true
-explicit_package_bases = true
-
-[[tool.mypy.overrides]]
-module = ["websockets.*"]
-ignore_missing_imports = true
-
-[tool.pytest.ini_options]
-addopts = "-q"
-asyncio_mode = "strict"
-testpaths = ["tests"]
+[tool.hatch.build.targets.sdist]
+include = ["/livekit", "/livekit_plugins_prosodyai"]
