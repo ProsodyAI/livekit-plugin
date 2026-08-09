@@ -115,12 +115,7 @@ class TextEvent:
 
 
 GatewayEvent = (
-    ReadyEvent
-    | TextEvent
-    | IdentityEvent
-    | TranscriptEvent
-    | ModelEvent
-    | ConversationEvent
+    ReadyEvent | TextEvent | IdentityEvent | TranscriptEvent | ModelEvent | ConversationEvent
 )
 
 
