@@ -253,6 +253,154 @@ ConversationWireEvent = Union[
 the learned event deciders with carried state. The model is the only author."""
 
 
+# ---------------------------------------------------------------------------
+# The identity timeline: one model-owned history of who spoke when.
+#
+# Diarization is the identity-state timeline. The deployment's tracker commits
+# each frame to a lane, a new lane, or hold, and the ordered sequence of those
+# commitments is the product's diarization. These shapes are the canonical
+# readout: every surface (live events, session export, batch response) derives
+# from them, and nothing downstream reconstructs a timeline from heuristics.
+
+
+IDENTITY_TIMELINE_SCHEMA_VERSION = 1
+
+
+class IdentityDecision(WireEventType):
+    """The tracker's verdict for one audio span."""
+
+    COMMIT = "commit"  # the span belongs to ``lane``
+    MINT = "mint"  # the span opened a fresh lane for a new voice
+    HOLD = "hold"  # evidence stayed unresolved; the span remains unattributed
+
+
+@dataclass(frozen=True)
+class IdentitySpan:
+    """One committed lane decision over a span of audio-clock time.
+
+    ``start_ms`` and ``end_ms`` bound the audio the decision covers, and are
+    retrodictive when the segment closed (or a hold resolved) after the fact;
+    ``commit_ms`` is where the verdict landed on the model's frame clock. A
+    HOLD span carries ``lane`` for the candidate under test while keeping
+    ``speaker_id`` null, because a hold attributes nothing. ``late_resolved``
+    marks a span whose commitment arrived after its audio window, and
+    ``unique_voice`` marks a minted lane the tracker will not merge into an
+    existing one.
+    """
+
+    start_ms: int
+    end_ms: int
+    commit_ms: int
+    lane: int
+    speaker_id: Optional[str]
+    decision: IdentityDecision
+    late_resolved: bool = False
+    unique_voice: bool = False
+
+    def to_dict(self) -> dict:
+        return {"decision": self.decision.value, **{k: v for k, v in asdict(self).items() if k != "decision"}}
+
+
+@dataclass(frozen=True)
+class IdentityLane:
+    """One lane in the session's lane book.
+
+    ``person_id`` is the durable cross-session lineage identity, present only
+    after a committed identity resolution; ``display_name`` labels it.
+    ``is_returning`` marks a lane that resumed a persisted person, and
+    ``is_agent`` marks the org's declared agent identity for self-recognition
+    filtering.
+    """
+
+    lane: int
+    speaker_id: str
+    person_id: Optional[str] = None
+    display_name: Optional[str] = None
+    is_returning: bool = False
+    is_agent: bool = False
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class IdentityTimeline:
+    """The session's whole identity history, in commit order.
+
+    ``spans`` carries every model assignment in the order the tracker
+    committed them; ``lanes`` is the lane book those spans reference.
+    ``events`` carries the committed tracker events verbatim so the durable
+    record keeps the raw commit stream beside the derived spans.
+    """
+
+    schema_version: int
+    model_provenance: Mapping[str, Any]
+    spans: tuple[IdentitySpan, ...]
+    lanes: tuple[IdentityLane, ...]
+    events: tuple[TrackerEvent, ...] = ()
+
+    def to_dict(self) -> dict:
+        return {
+            "schema_version": self.schema_version,
+            "model_provenance": dict(self.model_provenance),
+            "spans": [span.to_dict() for span in self.spans],
+            "lanes": [lane.to_dict() for lane in self.lanes],
+            "events": [event.to_dict() for event in self.events],
+        }
+
+
+def parse_identity_span(entry: Mapping[str, Any]) -> IdentitySpan:
+    """Parse one identity span. Strict: every required field must be present."""
+    owner = "identity span"
+    return IdentitySpan(
+        start_ms=int(_required(entry, "start_ms", owner)),
+        end_ms=int(_required(entry, "end_ms", owner)),
+        commit_ms=int(_required(entry, "commit_ms", owner)),
+        lane=int(_required(entry, "lane", owner)),
+        speaker_id=_optional_str(entry, "speaker_id"),
+        decision=IdentityDecision(str(_required(entry, "decision", owner))),
+        late_resolved=bool(entry.get("late_resolved") or False),
+        unique_voice=bool(entry.get("unique_voice") or False),
+    )
+
+
+def parse_identity_lane(entry: Mapping[str, Any]) -> IdentityLane:
+    """Parse one identity lane-book entry."""
+    owner = "identity lane"
+    return IdentityLane(
+        lane=int(_required(entry, "lane", owner)),
+        speaker_id=str(_required(entry, "speaker_id", owner)),
+        person_id=_optional_str(entry, "person_id"),
+        display_name=_optional_str(entry, "display_name"),
+        is_returning=bool(entry.get("is_returning") or False),
+        is_agent=bool(entry.get("is_agent") or False),
+    )
+
+
+def parse_identity_timeline(entry: Mapping[str, Any]) -> IdentityTimeline:
+    """Parse a canonical identity timeline payload."""
+    owner = "identity timeline"
+    raw_spans = _required(entry, "spans", owner)
+    raw_lanes = _required(entry, "lanes", owner)
+    if not isinstance(raw_spans, list) or not isinstance(raw_lanes, list):
+        raise ValueError(f"{owner} spans and lanes must be lists")
+    raw_events = entry.get("events") or []
+    return IdentityTimeline(
+        schema_version=int(_required(entry, "schema_version", owner)),
+        model_provenance=dict(
+            _required(entry, "model_provenance", owner)
+        ),
+        spans=tuple(parse_identity_span(span) for span in raw_spans),
+        lanes=tuple(parse_identity_lane(lane) for lane in raw_lanes),
+        events=tuple(
+            event
+            for item in raw_events
+            if isinstance(item, Mapping)
+            and (event := parse_tracker_event(item)) is not None
+        ),
+    )
+
+
 def parse_conversation_event(
     entry: Mapping[str, Any],
 ) -> Optional[ConversationWireEvent]:
@@ -334,6 +482,8 @@ class GatewayEventType(WireEventType):
     NEW_SPEAKER = "prosodyai.new_speaker"
     IDENTITY_RESOLVED = "prosodyai.identity_resolved"
     AGENT_TOOL = "prosodyai.agent_tool"
+    AGENT_THOUGHT = "prosodyai.agent_thought"
+    AGENT_TOOL_STATUS = "prosodyai.agent_tool_status"
 
 
 @dataclass(frozen=True)
@@ -399,8 +549,9 @@ class GatewayIdentityResolvedEvent:
 class GatewayAgentToolEvent:
     """``prosodyai.agent_tool``: one completed capability, shown to the caller.
 
-    Serialize-only today: the gateway announces the reasoner's completed
-    tool exchanges, and no consumer parses them back into a typed form yet.
+    The reasoner chose the tool, the gateway ran it, and ``result`` is what
+    the speech model was told. This is the acting half of the reasoner's
+    deliberation; ``prosodyai.agent_thought`` is the reading half.
     """
 
     TYPE: ClassVar[GatewayEventType] = GatewayEventType.AGENT_TOOL
@@ -414,10 +565,65 @@ class GatewayAgentToolEvent:
         return {"type": self.TYPE.value, **asdict(self)}
 
 
+@dataclass(frozen=True)
+class GatewayAgentThoughtEvent:
+    """``prosodyai.agent_thought``: the reasoner's own read of the moment.
+
+    One deliberation line per reasoning pass, in the reasoner's own words,
+    written before it decides whether any capability is warranted. It is
+    Jarvis thinking, and it is never spoken: the speech model never receives
+    it and it carries no measurement, verdict, or score.
+    """
+
+    TYPE: ClassVar[GatewayEventType] = GatewayEventType.AGENT_THOUGHT
+
+    session_id: str
+    text: str
+
+    def to_dict(self) -> dict:
+        return {"type": self.TYPE.value, **asdict(self)}
+
+
+class ToolCallStatus(WireEventType):
+    """The lifecycle stages of one capability invocation."""
+
+    STARTED = "started"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class GatewayAgentToolStatusEvent:
+    """``prosodyai.agent_tool_status``: one stage of a capability's lifecycle.
+
+    ``started`` fires the moment the reasoner commits to running the tool;
+    ``completed`` carries the result; ``failed`` carries the error. Moshi only
+    ever receives the completed exchange (it cannot await a round trip), so
+    these events exist for the caller surface and never join the control
+    channel. ``call_id`` ties the stages together.
+    """
+
+    TYPE: ClassVar[GatewayEventType] = GatewayEventType.AGENT_TOOL_STATUS
+
+    session_id: str
+    call_id: str
+    name: str
+    status: ToolCallStatus
+    arguments: dict[str, Any] = field(default_factory=dict)
+    result: Optional[str] = None
+    error: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        return {"type": self.TYPE.value, "status": self.status.value, **{k: v for k, v in asdict(self).items() if k != "status"}}
+
+
 GatewayModelEvent = Union[
     GatewaySpeakerChangeEvent,
     GatewayNewSpeakerEvent,
     GatewayIdentityResolvedEvent,
+    GatewayAgentToolEvent,
+    GatewayAgentThoughtEvent,
+    GatewayAgentToolStatusEvent,
 ]
 """A committed model decision off the gateway's 0x06 event channel."""
 
@@ -429,9 +635,8 @@ def parse_gateway_model_event(
 
     The gateway wire's single parse site for model events. Strict on
     recognized types: a missing required field raises ``ValueError`` naming
-    the event and the field. An unrecognized ``type`` (including the
-    serialize-only ``prosodyai.agent_tool``) returns ``None`` so an unknown
-    event never breaks the socket.
+    the event and the field. An unrecognized ``type`` returns ``None`` so an
+    unknown event never breaks the socket.
     """
     try:
         event_type = GatewayEventType(str(frame.get("type")))
@@ -464,9 +669,29 @@ def parse_gateway_model_event(
             display_name=_optional_str(frame, "display_name"),
             verified=bool(_required(frame, "verified", owner)),
         )
-    # ``prosodyai.agent_tool`` is serialize-only: announced to callers,
-    # never parsed back into a typed form.
-    return None
+    if event_type is GatewayEventType.AGENT_TOOL:
+        arguments = frame.get("arguments")
+        return GatewayAgentToolEvent(
+            session_id=str(_required(frame, "session_id", owner)),
+            name=str(_required(frame, "name", owner)),
+            arguments=dict(arguments) if isinstance(arguments, Mapping) else {},
+            result=str(frame.get("result") or ""),
+        )
+    if event_type is GatewayEventType.AGENT_TOOL_STATUS:
+        arguments = frame.get("arguments")
+        return GatewayAgentToolStatusEvent(
+            session_id=str(_required(frame, "session_id", owner)),
+            call_id=str(_required(frame, "call_id", owner)),
+            name=str(_required(frame, "name", owner)),
+            status=ToolCallStatus(str(_required(frame, "status", owner))),
+            arguments=dict(arguments) if isinstance(arguments, Mapping) else {},
+            result=_optional_str(frame, "result"),
+            error=_optional_str(frame, "error"),
+        )
+    return GatewayAgentThoughtEvent(
+        session_id=str(_required(frame, "session_id", owner)),
+        text=str(_required(frame, "text", owner)),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -499,7 +724,7 @@ class IdentityEvent:
     """A committed identity resolution, announced mid-conversation.
 
     ``recognized_at_ms`` is the audio position (ms into the call) of the
-    chunk whose tracker assignment resolved the person. The model owns this
+    frame whose tracker assignment resolved the person. The model owns this
     clock, so it is the recognition time; consumers report it and derive
     nothing from it.
     """
@@ -521,7 +746,7 @@ class IdentityEvent:
 
 @dataclass(frozen=True)
 class TranscriptEvent:
-    """Words for one tracked chunk, attributed by the model's tracker.
+    """Words for one tracked frame, attributed by the model's tracker.
 
     Subtitles only. Speaker and identity decisions arrive on the committed
     model-event channel and are never derived from this text.
@@ -644,6 +869,8 @@ def vocabulary() -> dict[str, tuple[str, ...]]:
             GatewayNewSpeakerEvent,
             GatewayIdentityResolvedEvent,
             GatewayAgentToolEvent,
+            GatewayAgentThoughtEvent,
+            GatewayAgentToolStatusEvent,
             IdentityEvent,
             TranscriptEvent,
         )
