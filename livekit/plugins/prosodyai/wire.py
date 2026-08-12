@@ -298,7 +298,10 @@ class IdentitySpan:
     unique_voice: bool = False
 
     def to_dict(self) -> dict:
-        return {"decision": self.decision.value, **{k: v for k, v in asdict(self).items() if k != "decision"}}
+        return {
+            "decision": self.decision.value,
+            **{k: v for k, v in asdict(self).items() if k != "decision"},
+        }
 
 
 @dataclass(frozen=True)
@@ -387,16 +390,13 @@ def parse_identity_timeline(entry: Mapping[str, Any]) -> IdentityTimeline:
     raw_events = entry.get("events") or []
     return IdentityTimeline(
         schema_version=int(_required(entry, "schema_version", owner)),
-        model_provenance=dict(
-            _required(entry, "model_provenance", owner)
-        ),
+        model_provenance=dict(_required(entry, "model_provenance", owner)),
         spans=tuple(parse_identity_span(span) for span in raw_spans),
         lanes=tuple(parse_identity_lane(lane) for lane in raw_lanes),
         events=tuple(
             event
             for item in raw_events
-            if isinstance(item, Mapping)
-            and (event := parse_tracker_event(item)) is not None
+            if isinstance(item, Mapping) and (event := parse_tracker_event(item)) is not None
         ),
     )
 
@@ -614,7 +614,11 @@ class GatewayAgentToolStatusEvent:
     error: Optional[str] = None
 
     def to_dict(self) -> dict:
-        return {"type": self.TYPE.value, "status": self.status.value, **{k: v for k, v in asdict(self).items() if k != "status"}}
+        return {
+            "type": self.TYPE.value,
+            "status": self.status.value,
+            **{k: v for k, v in asdict(self).items() if k != "status"},
+        }
 
 
 GatewayModelEvent = Union[
