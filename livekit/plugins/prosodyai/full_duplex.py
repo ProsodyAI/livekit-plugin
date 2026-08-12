@@ -265,10 +265,10 @@ class FullDuplexBridge:
             self._config.url,
             max_size=16 * 1024 * 1024,
             open_timeout=120.0,
-            # The gateway applies backpressure by parking its receive loop,
-            # which leaves our pings unanswered until the model drains.
-            # Transport pings would abort healthy backpressed calls; uplink
-            # audio itself is the liveness signal on this socket.
+            # The gateway queues uplink frames and steps them on a pump task,
+            # so its receive loop keeps reading through GPU spikes. Client
+            # pings stay disabled: uplink audio itself is the liveness signal
+            # on this socket, and a transport ping buys nothing over it.
             ping_interval=None,
         ) as websocket:
             writer = sphn.OpusStreamWriter(GATEWAY_SAMPLE_RATE)
