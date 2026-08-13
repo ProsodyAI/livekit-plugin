@@ -140,7 +140,11 @@ async def test_full_duplex_session_against_the_wire_protocol(monkeypatch):
 
         frame = await asyncio.wait_for(message.audio_stream.__anext__(), timeout=10.0)
         assert frame.sample_rate == GATEWAY_SAMPLE_RATE
-        assert frame.samples_per_channel > 0
+        publish_samples = GATEWAY_SAMPLE_RATE * 20 // 1000
+        assert frame.samples_per_channel == publish_samples
+
+        second = await asyncio.wait_for(message.audio_stream.__anext__(), timeout=10.0)
+        assert second.samples_per_channel == publish_samples
 
         identity: IdentityEvent = await asyncio.wait_for(identities.get(), timeout=10.0)
         assert identity.person_id == IDENTITY["person_id"]

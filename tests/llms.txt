@@ -1,0 +1,11 @@
+# packages/livekit/tests
+
+Plugin tests. Wire vocabulary must match `shared/wire.py`. The realtime
+session test speaks the gateway protocol through a fake WebSocket.
+
+## Files
+
+- `test_realtime_model.py`: handshake, identity, transcript, speaker
+  change, and 20 ms downlink frames against a fake gateway.
+- `test_wire_vocabulary.py`: vendored `wire.py` is byte-identical to
+  `shared/wire.py`.

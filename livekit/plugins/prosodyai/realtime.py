@@ -47,6 +47,9 @@ from .full_duplex import (
 )
 from .wire import WireEventType
 
+# LiveKit RTP / RoomIO publish at 20 ms. The gateway emits ~80 ms Opus.
+_PUBLISH_FRAME_BYTES = (GATEWAY_SAMPLE_RATE * 20 // 1000) * 2
+
 __all__ = [
     "IdentityEvent",
     "IdentityResolvedEvent",
@@ -209,14 +212,20 @@ class RealtimeSession(llm.RealtimeSession[EventTypes]):
     async def _on_downlink(self, pcm: bytes) -> None:
         if self._closed or not pcm:
             return
-        self._audio_ch.send_nowait(
-            rtc.AudioFrame(
-                data=pcm,
-                sample_rate=GATEWAY_SAMPLE_RATE,
-                num_channels=1,
-                samples_per_channel=len(pcm) // 2,
+        offset = 0
+        while offset + 2 <= len(pcm):
+            chunk = pcm[offset : offset + _PUBLISH_FRAME_BYTES]
+            offset += len(chunk)
+            if len(chunk) < 2:
+                break
+            self._audio_ch.send_nowait(
+                rtc.AudioFrame(
+                    data=chunk,
+                    sample_rate=GATEWAY_SAMPLE_RATE,
+                    num_channels=1,
+                    samples_per_channel=len(chunk) // 2,
+                )
             )
-        )
 
     async def _on_event(self, event: GatewayEvent) -> None:
         if isinstance(event, ReadyEvent):
