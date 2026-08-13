@@ -1,7 +1,7 @@
 # Plugin tests
 
 ```bash
-cd packages/livekit
+cd packages/livekit-plugins-prosodyai
 python -m pytest
 ```
 

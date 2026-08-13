@@ -597,8 +597,8 @@ class GatewayAgentToolStatusEvent:
     """``prosodyai.agent_tool_status``: one stage of a capability's lifecycle.
 
     ``started`` fires the moment the reasoner commits to running the tool;
-    ``completed`` carries the result; ``failed`` carries the error. Moshi only
-    ever receives the completed exchange (it cannot await a round trip), so
+    ``completed`` carries the result; ``failed`` carries the error. PersonaPlex
+    only ever receives the completed exchange (it cannot await a round trip), so
     these events exist for the caller surface and never join the control
     channel. ``call_id`` ties the stages together.
     """

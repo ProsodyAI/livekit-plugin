@@ -1,7 +1,7 @@
 """The ProsodyAI gateway as a LiveKit Agents realtime model.
 
 ``RealtimeModel`` drops the gateway's continuous Mimi → ProsodySSM speaker
-state → Moshi path into an ``AgentSession`` the same way
+state → PersonaPlex path into an ``AgentSession`` the same way
 ``openai.realtime.RealtimeModel`` does: LiveKit owns the transport, room
 audio, and session state; this plugin owns the wire.
 

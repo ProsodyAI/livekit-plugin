@@ -1,4 +1,4 @@
-# packages/livekit/tests
+# packages/livekit-plugins-prosodyai/tests
 
 Plugin tests. Wire vocabulary must match `shared/wire.py`. The realtime
 session test speaks the gateway protocol through a fake WebSocket.

@@ -45,8 +45,8 @@ dev = ["pytest", "pytest-asyncio", "numpy>=1.24"]
 [project.urls]
 Homepage = "https://prosodyai.app"
 Documentation = "https://prosodyai.app/docs"
-Repository = "https://github.com/ProsodyAI/livekit-plugin"
-"Bug Tracker" = "https://github.com/ProsodyAI/livekit-plugin/issues"
+Repository = "https://github.com/ProsodyAI/livekit-plugins-prosodyai"
+"Bug Tracker" = "https://github.com/ProsodyAI/livekit-plugins-prosodyai/issues"
 LiveKit = "https://livekit.io"
 "LiveKit Agents" = "https://docs.livekit.io/agents"
 PyPI = "https://pypi.org/project/livekit-plugins-prosodyai/"

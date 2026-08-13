@@ -37,7 +37,7 @@ pull request only when `PROSODYAI_RELEASE_TOKEN` is configured. It verifies
 that the current `dev` head exactly matches the SHA that passed CI. It cannot
 merge the pull request.
 
-Use a fine-grained release token restricted to `ProsodyAI/livekit` with
+Use a fine-grained release token restricted to `ProsodyAI/livekit-plugins-prosodyai` with
 `Contents: read` and `Pull requests: write`. If the token is absent, the
 workflow emits a notice and stays green.
 
@@ -45,7 +45,7 @@ After every green `main` push, CI sends a `prosodyai_livekit_main_updated`
 repository dispatch to `ProsodyAI/prosodyai` with these payload fields:
 
 - `livekit_sha`: the exact merged `main` commit
-- `source_repository`: `ProsodyAI/livekit`
+- `source_repository`: `ProsodyAI/livekit-plugins-prosodyai`
 - `source_ref`: `main`
 
 The public repository needs a `PROSODYAI_ROOT_DISPATCH_TOKEN` Actions secret.
