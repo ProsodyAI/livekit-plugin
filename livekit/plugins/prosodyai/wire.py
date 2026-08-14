@@ -86,9 +86,7 @@ def _coerce_item(annotation: Any, item: Any, key: str, owner: str) -> Any:
     if get_origin(annotation) is Union:
         if not isinstance(item, Mapping):
             return None
-        shape = {cls.TYPE.value: cls for cls in get_args(annotation)}.get(
-            str(item.get("type"))
-        )
+        shape = {cls.TYPE.value: cls for cls in get_args(annotation)}.get(str(item.get("type")))
         return None if shape is None else parse_wire(shape, item, f"{owner} {key}")
     return _coerce(annotation, item, key, owner)
 
@@ -144,9 +142,7 @@ def parse_wire(cls: type, entry: Mapping[str, Any], owner: str) -> Any:
                 kwargs[declared.name] = None
                 continue
             raise ValueError(f"{owner} is missing required field {declared.name!r}")
-        kwargs[declared.name] = _coerce(
-            _unwrap_optional(annotation), value, declared.name, owner
-        )
+        kwargs[declared.name] = _coerce(_unwrap_optional(annotation), value, declared.name, owner)
     return cls(**kwargs)
 
 
