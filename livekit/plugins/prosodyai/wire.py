@@ -31,9 +31,10 @@ can grow model-side first without breaking a consumer.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field, fields
+import collections.abc
+from dataclasses import MISSING, asdict, dataclass, field, fields, is_dataclass
 from enum import Enum
-from typing import Any, ClassVar, Mapping, Optional, Union
+from typing import Any, ClassVar, Mapping, Optional, Union, get_args, get_origin, get_type_hints
 
 
 class WireEventType(str, Enum):
@@ -65,26 +66,102 @@ def speaker_label(lane: int) -> str:
     return f"speaker_{lane}"
 
 
-def _required(entry: Mapping[str, Any], key: str, owner: str) -> Any:
-    """Index a required field and fail loud when the producer broke contract.
+def _is_optional(annotation: Any) -> bool:
+    return get_origin(annotation) is Union and type(None) in get_args(annotation)
 
-    Absence and an explicit null are the same violation: the emit sites
-    always send these fields with real values.
+
+def _unwrap_optional(annotation: Any) -> Any:
+    if not _is_optional(annotation):
+        return annotation
+    return next(arg for arg in get_args(annotation) if arg is not type(None))
+
+
+def _coerce_item(annotation: Any, item: Any, key: str, owner: str) -> Any:
+    """Coerce one tuple member, dispatching event unions on the ``type`` key.
+
+    A union member whose type key is unrecognized, or a member that is not
+    an object at all, parses to ``None`` and the caller's tuple filters it:
+    the vocabulary grows model-side first without breaking a consumer.
     """
-    value = entry.get(key)
-    if value is None:
-        raise ValueError(f"{owner} is missing required field {key!r}")
+    if get_origin(annotation) is Union:
+        if not isinstance(item, Mapping):
+            return None
+        shape = {cls.TYPE.value: cls for cls in get_args(annotation)}.get(
+            str(item.get("type"))
+        )
+        return None if shape is None else parse_wire(shape, item, f"{owner} {key}")
+    return _coerce(annotation, item, key, owner)
+
+
+def _coerce(annotation: Any, value: Any, key: str, owner: str) -> Any:
+    """Coerce one present wire value to its declared field type."""
+    if annotation is int:
+        return int(value)
+    if annotation is float:
+        return float(value)
+    if annotation is bool:
+        return bool(value)
+    if annotation is str:
+        return str(value)
+    if isinstance(annotation, type) and issubclass(annotation, Enum):
+        return annotation(str(value))
+    if get_origin(annotation) is tuple:
+        inner = get_args(annotation)[0]
+        return tuple(
+            parsed
+            for parsed in (_coerce_item(inner, item, key, owner) for item in value)
+            if parsed is not None
+        )
+    if get_origin(annotation) in (dict, collections.abc.Mapping):
+        if not isinstance(value, Mapping):
+            raise ValueError(f"{owner} field {key!r} must be an object")
+        return dict(value)
+    if isinstance(annotation, type) and is_dataclass(annotation):
+        return parse_wire(annotation, value, f"{owner} {key}")
     return value
 
 
-def _optional_int(entry: Mapping[str, Any], key: str) -> Optional[int]:
-    value = entry.get(key)
-    return None if value is None else int(value)
+def parse_wire(cls: type, entry: Mapping[str, Any], owner: str) -> Any:
+    """Build one declared wire shape from its payload.
+
+    The dataclass fields are the parse declaration: a missing or null
+    required field raises ``ValueError`` naming the owner and the field, an
+    ``Optional`` field parses null to ``None``, and a field with a declared
+    default falls back to it. Every coercion derives from the field's
+    annotation, so a new field on a shape parses itself.
+    """
+    if not isinstance(entry, Mapping):
+        raise ValueError(f"{owner} must be an object")
+    hints = get_type_hints(cls)
+    kwargs: dict[str, Any] = {}
+    for declared in fields(cls):
+        annotation = hints[declared.name]
+        value = entry.get(declared.name)
+        if value is None:
+            if declared.default is not MISSING or declared.default_factory is not MISSING:
+                continue
+            if _is_optional(annotation):
+                kwargs[declared.name] = None
+                continue
+            raise ValueError(f"{owner} is missing required field {declared.name!r}")
+        kwargs[declared.name] = _coerce(
+            _unwrap_optional(annotation), value, declared.name, owner
+        )
+    return cls(**kwargs)
 
 
-def _optional_str(entry: Mapping[str, Any], key: str) -> Optional[str]:
-    value = entry.get(key)
-    return None if value is None else str(value)
+def _event_shape(family: type, union: Any, entry: Mapping[str, Any]) -> Any:
+    """Dispatch one event payload to its declared shape on the ``type`` key.
+
+    An unrecognized type parses to ``None`` so the vocabulary can grow
+    model-side first without breaking a consumer.
+    """
+    try:
+        event_type = family(str(entry.get("type")))
+    except ValueError:
+        return None
+    shape = {cls.TYPE: cls for cls in get_args(union)}[event_type]
+    return parse_wire(shape, entry, f"{event_type.value} event")
 
 
 # ---------------------------------------------------------------------------
@@ -354,51 +431,17 @@ class IdentityTimeline:
 
 def parse_identity_span(entry: Mapping[str, Any]) -> IdentitySpan:
     """Parse one identity span. Strict: every required field must be present."""
-    owner = "identity span"
-    return IdentitySpan(
-        start_ms=int(_required(entry, "start_ms", owner)),
-        end_ms=int(_required(entry, "end_ms", owner)),
-        commit_ms=int(_required(entry, "commit_ms", owner)),
-        lane=int(_required(entry, "lane", owner)),
-        speaker_id=_optional_str(entry, "speaker_id"),
-        decision=IdentityDecision(str(_required(entry, "decision", owner))),
-        late_resolved=bool(entry.get("late_resolved") or False),
-        unique_voice=bool(entry.get("unique_voice") or False),
-    )
+    return parse_wire(IdentitySpan, entry, "identity span")
 
 
 def parse_identity_lane(entry: Mapping[str, Any]) -> IdentityLane:
     """Parse one identity lane-book entry."""
-    owner = "identity lane"
-    return IdentityLane(
-        lane=int(_required(entry, "lane", owner)),
-        speaker_id=str(_required(entry, "speaker_id", owner)),
-        person_id=_optional_str(entry, "person_id"),
-        display_name=_optional_str(entry, "display_name"),
-        is_returning=bool(entry.get("is_returning") or False),
-        is_agent=bool(entry.get("is_agent") or False),
-    )
+    return parse_wire(IdentityLane, entry, "identity lane")
 
 
 def parse_identity_timeline(entry: Mapping[str, Any]) -> IdentityTimeline:
     """Parse a canonical identity timeline payload."""
-    owner = "identity timeline"
-    raw_spans = _required(entry, "spans", owner)
-    raw_lanes = _required(entry, "lanes", owner)
-    if not isinstance(raw_spans, list) or not isinstance(raw_lanes, list):
-        raise ValueError(f"{owner} spans and lanes must be lists")
-    raw_events = entry.get("events") or []
-    return IdentityTimeline(
-        schema_version=int(_required(entry, "schema_version", owner)),
-        model_provenance=dict(_required(entry, "model_provenance", owner)),
-        spans=tuple(parse_identity_span(span) for span in raw_spans),
-        lanes=tuple(parse_identity_lane(lane) for lane in raw_lanes),
-        events=tuple(
-            event
-            for item in raw_events
-            if isinstance(item, Mapping) and (event := parse_tracker_event(item)) is not None
-        ),
-    )
+    return parse_wire(IdentityTimeline, entry, "identity timeline")
 
 
 def parse_conversation_event(
@@ -410,30 +453,7 @@ def parse_conversation_event(
     ``ValueError`` naming the event and the field. An unrecognized ``type``
     returns ``None`` because the vocabulary grows model-side first.
     """
-    try:
-        event_type = ConversationEventType(str(entry.get("type")))
-    except ValueError:
-        return None
-    owner = f"{event_type.value} event"
-    if event_type is ConversationEventType.STATE_DELTA:
-        return ConversationStateDeltaEvent(
-            frame_ms=int(_required(entry, "frame_ms", owner)),
-            commit_ms=int(_required(entry, "commit_ms", owner)),
-            duration_ms=int(_required(entry, "duration_ms", owner)),
-            magnitude=float(_required(entry, "magnitude", owner)),
-            resolved=bool(_required(entry, "resolved", owner)),
-        )
-    if event_type is ConversationEventType.TURN_BOUNDARY:
-        return ConversationTurnBoundaryEvent(
-            frame_ms=int(_required(entry, "frame_ms", owner)),
-            commit_ms=int(_required(entry, "commit_ms", owner)),
-        )
-    return ConversationBargeInEvent(
-        frame_ms=int(_required(entry, "frame_ms", owner)),
-        commit_ms=int(_required(entry, "commit_ms", owner)),
-        duration_ms=int(_required(entry, "duration_ms", owner)),
-        resolved=bool(_required(entry, "resolved", owner)),
-    )
+    return _event_shape(ConversationEventType, ConversationWireEvent, entry)
 
 
 def parse_tracker_event(entry: Mapping[str, Any]) -> Optional[TrackerEvent]:
@@ -444,31 +464,7 @@ def parse_tracker_event(entry: Mapping[str, Any]) -> Optional[TrackerEvent]:
     field. An unrecognized ``type`` returns ``None`` because the vocabulary
     grows model-side first.
     """
-    try:
-        event_type = TrackerEventType(str(entry.get("type")))
-    except ValueError:
-        return None
-    owner = f"{event_type.value} event"
-    if event_type is TrackerEventType.SPEAKER_CHANGE:
-        return TrackerSpeakerChangeEvent(
-            frame_ms=int(_required(entry, "frame_ms", owner)),
-            lane=int(_required(entry, "lane", owner)),
-            previous_lane=_optional_int(entry, "previous_lane"),
-            known_id=_optional_str(entry, "known_id"),
-            previous_known_id=_optional_str(entry, "previous_known_id"),
-        )
-    if event_type is TrackerEventType.NEW_SPEAKER:
-        return TrackerNewSpeakerEvent(
-            frame_ms=int(_required(entry, "frame_ms", owner)),
-            lane=int(_required(entry, "lane", owner)),
-            evidence_seconds=float(_required(entry, "evidence_seconds", owner)),
-        )
-    return TrackerIdentityResolvedEvent(
-        frame_ms=int(_required(entry, "frame_ms", owner)),
-        lane=int(_required(entry, "lane", owner)),
-        person_id=str(_required(entry, "person_id", owner)),
-        verified=bool(_required(entry, "verified", owner)),
-    )
+    return _event_shape(TrackerEventType, TrackerEvent, entry)
 
 
 # ---------------------------------------------------------------------------
@@ -558,8 +554,8 @@ class GatewayAgentToolEvent:
 
     session_id: str
     name: str
-    arguments: dict[str, Any]
-    result: str
+    arguments: dict[str, Any] = field(default_factory=dict)
+    result: str = ""
 
     def to_dict(self) -> dict:
         return {"type": self.TYPE.value, **asdict(self)}
@@ -642,60 +638,7 @@ def parse_gateway_model_event(
     the event and the field. An unrecognized ``type`` returns ``None`` so an
     unknown event never breaks the socket.
     """
-    try:
-        event_type = GatewayEventType(str(frame.get("type")))
-    except ValueError:
-        return None
-    owner = f"{event_type.value} event"
-    if event_type is GatewayEventType.SPEAKER_CHANGE:
-        return GatewaySpeakerChangeEvent(
-            timestamp_ms=int(_required(frame, "timestamp_ms", owner)),
-            session_id=str(_required(frame, "session_id", owner)),
-            speaker_id=str(_required(frame, "speaker_id", owner)),
-            previous_speaker_id=_optional_str(frame, "previous_speaker_id"),
-            person_id=_optional_str(frame, "person_id"),
-            display_name=_optional_str(frame, "display_name"),
-            is_agent=bool(_required(frame, "is_agent", owner)),
-        )
-    if event_type is GatewayEventType.NEW_SPEAKER:
-        return GatewayNewSpeakerEvent(
-            timestamp_ms=int(_required(frame, "timestamp_ms", owner)),
-            session_id=str(_required(frame, "session_id", owner)),
-            speaker_id=str(_required(frame, "speaker_id", owner)),
-            evidence_seconds=float(_required(frame, "evidence_seconds", owner)),
-        )
-    if event_type is GatewayEventType.IDENTITY_RESOLVED:
-        return GatewayIdentityResolvedEvent(
-            timestamp_ms=int(_required(frame, "timestamp_ms", owner)),
-            session_id=str(_required(frame, "session_id", owner)),
-            speaker_id=str(_required(frame, "speaker_id", owner)),
-            person_id=_optional_str(frame, "person_id"),
-            display_name=_optional_str(frame, "display_name"),
-            verified=bool(_required(frame, "verified", owner)),
-        )
-    if event_type is GatewayEventType.AGENT_TOOL:
-        arguments = frame.get("arguments")
-        return GatewayAgentToolEvent(
-            session_id=str(_required(frame, "session_id", owner)),
-            name=str(_required(frame, "name", owner)),
-            arguments=dict(arguments) if isinstance(arguments, Mapping) else {},
-            result=str(frame.get("result") or ""),
-        )
-    if event_type is GatewayEventType.AGENT_TOOL_STATUS:
-        arguments = frame.get("arguments")
-        return GatewayAgentToolStatusEvent(
-            session_id=str(_required(frame, "session_id", owner)),
-            call_id=str(_required(frame, "call_id", owner)),
-            name=str(_required(frame, "name", owner)),
-            status=ToolCallStatus(str(_required(frame, "status", owner))),
-            arguments=dict(arguments) if isinstance(arguments, Mapping) else {},
-            result=_optional_str(frame, "result"),
-            error=_optional_str(frame, "error"),
-        )
-    return GatewayAgentThoughtEvent(
-        session_id=str(_required(frame, "session_id", owner)),
-        text=str(_required(frame, "text", owner)),
-    )
+    return _event_shape(GatewayEventType, GatewayModelEvent, frame)
 
 
 # ---------------------------------------------------------------------------
@@ -759,7 +702,7 @@ class TranscriptEvent:
     TYPE: ClassVar[RoomEventType] = RoomEventType.TRANSCRIPT
 
     speaker_id: str
-    deltas: tuple[TranscriptDelta, ...]
+    deltas: tuple[TranscriptDelta, ...] = ()
 
     def to_payload(self) -> dict:
         return asdict(self)
@@ -774,14 +717,7 @@ def parse_identity_payload(frame: Mapping[str, Any]) -> IdentityEvent:
     Strict on required fields. Fields outside the declared shape are
     ignored so a grown resolution never breaks the socket.
     """
-    owner = f"{RoomEventType.IDENTITY.value} event"
-    return IdentityEvent(
-        speaker_id=str(_required(frame, "speaker_id", owner)),
-        person_id=str(_required(frame, "person_id", owner)),
-        display_name=_optional_str(frame, "display_name"),
-        is_returning=bool(_required(frame, "is_returning", owner)),
-        recognized_at_ms=int(_required(frame, "recognized_at_ms", owner)),
-    )
+    return parse_wire(IdentityEvent, frame, f"{RoomEventType.IDENTITY.value} event")
 
 
 def parse_transcript_payload(frame: Mapping[str, Any]) -> Optional[TranscriptEvent]:
@@ -790,24 +726,8 @@ def parse_transcript_payload(frame: Mapping[str, Any]) -> Optional[TranscriptEve
     Strict on required fields, in every delta included. A payload without
     deltas parses to ``None``.
     """
-    owner = f"{RoomEventType.TRANSCRIPT.value} event"
-    raw_deltas = frame.get("deltas") or []
-    if any(not isinstance(delta, Mapping) for delta in raw_deltas):
-        raise ValueError(f"{owner} deltas must be objects")
-    deltas = tuple(
-        TranscriptDelta(
-            text=str(_required(delta, "text", f"{owner} delta")),
-            start_ms=int(_required(delta, "start_ms", f"{owner} delta")),
-            end_ms=int(_required(delta, "end_ms", f"{owner} delta")),
-        )
-        for delta in raw_deltas
-    )
-    if not deltas:
-        return None
-    return TranscriptEvent(
-        speaker_id=str(_required(frame, "speaker_id", owner)),
-        deltas=deltas,
-    )
+    event = parse_wire(TranscriptEvent, frame, f"{RoomEventType.TRANSCRIPT.value} event")
+    return event if event.deltas else None
 
 
 # ---------------------------------------------------------------------------
