@@ -17,8 +17,7 @@ here.
 
 The bytes of both wires are frozen. Consumers align to the wire, and a
 rename lands here before it lands anywhere else. Every field is a committed
-fact; deliberation numbers never join these shapes
-(``ci/validate_architecture_contract.py`` enforces the ban).
+fact; deliberation numbers never join these shapes.
 
 Parsers here are strict. A recognized event missing a required field raises
 ``ValueError`` naming the event and the field, because a producer that
