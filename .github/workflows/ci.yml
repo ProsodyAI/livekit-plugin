@@ -26,7 +26,7 @@ jobs:
           fi
           # person_id is a committed public identity fact on the plugin wire;
           # the guard bans internal providers, cloning, keys, and named users.
-          forbidden_code='speaker_profiles?|voice.?clone|voxcpm|baseten|pinecone|openai([_-]?api)?[-_[:space:]]?key|prosodyai_admin|jacob|kyle|target.?policy'
+          forbidden_code='speaker_profiles?|voice.?clone|voxcpm|baseten|pinecone|openai([_-]?api)?[-_[:space:]]?key|prosodyai_admin|speaker_a|speaker_b|target.?policy'
           if git grep -n -i -E "$forbidden_code" -- . ':(exclude).github/workflows/ci.yml'; then
             echo "::error title=Private implementation detected::This tree contains an internal identity, provider, named-user, credential, or targeting marker."
             exit 1

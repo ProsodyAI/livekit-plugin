@@ -1,36 +1,20 @@
-<p align="center">
-  <a href="https://prosodyai.app">
-    <img src="https://prosodyai.app/logo.png" alt="ProsodyAI" width="88" />
-  </a>
-  &nbsp;&nbsp;&nbsp;
-  <a href="https://livekit.io">
-    <img src="https://avatars.githubusercontent.com/u/69438833?s=176" alt="LiveKit" width="88" />
-  </a>
-</p>
+# ProsodyAI for LiveKit Agents
 
-<h1 align="center">ProsodyAI for LiveKit Agents</h1>
+**Full-duplex speech agents with persistent speaker identity**
 
-<p align="center"><strong>Full-duplex voice agents with persistent speaker identity.</strong></p>
+[![PyPI](https://img.shields.io/pypi/v/livekit-plugins-prosodyai)](https://pypi.org/project/livekit-plugins-prosodyai/)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://pypi.org/project/livekit-plugins-prosodyai/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-<p align="center">
-  <a href="https://prosodyai.app">Product</a> ·
-  <a href="https://prosodyai.app/docs">Docs</a> ·
-  <a href="https://docs.livekit.io/agents/">LiveKit Agents</a> ·
-  <a href="https://pypi.org/project/livekit-plugins-prosodyai/">PyPI</a>
-</p>
+Plugin for [LiveKit Agents](https://docs.livekit.io/agents/) that connects a
+room to the ProsodyAI speech model. The agent listens and speaks on one
+continuous connection, with speaker identity and conversation events on the
+same stream.
 
-<p align="center">
-  <a href="https://docs.livekit.io/agents/"><img src="https://img.shields.io/badge/LiveKit-Agents-1FD5F9?logo=livekit&logoColor=white" alt="LiveKit Agents" /></a>
-  <a href="https://pypi.org/project/livekit-plugins-prosodyai/"><img src="https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white" alt="Python 3.10+" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license" /></a>
-</p>
-
-One continuous speech model carries the whole call. The agent listens and
-speaks on the same open connection, with no turn detector and no
-STT → LLM → TTS pipeline: audio advances the model's recurrence, and response
-timing emerges from continuous generation. Every voice on the call advances
-its own recurrent speaker state, so the agent knows who is speaking, notices
-when the floor changes, and recognizes a returning caller across hangups.
+[Product](https://prosodyai.app) ·
+[Docs](https://prosodyai.app/docs) ·
+[LiveKit Agents](https://docs.livekit.io/agents/) ·
+[PyPI](https://pypi.org/project/livekit-plugins-prosodyai/)
 
 ## Install
 
@@ -39,13 +23,7 @@ pip install "livekit-plugins-prosodyai[duplex]"
 export PROSODYAI_API_KEY=psk_...
 ```
 
-The duplex transport uses `sphn` for 24 kHz Opus audio.
-
-## A full-duplex agent in six lines
-
-`RealtimeModel` plugs the ProsodyAI speech model into a LiveKit
-`AgentSession`. The gateway owns speech generation, response timing,
-barge-in, speaker lanes, and memory.
+## Usage
 
 ```python
 from livekit.agents import AgentSession
@@ -57,35 +35,31 @@ session = AgentSession(llm=model)
 await session.start(room=ctx.room)
 ```
 
-The model advertises continuous full-duplex capabilities to LiveKit. Audio
-advances the model recurrence for the life of the session.
+`RealtimeModel` sends continuous room audio to ProsodyAI and returns generated
+audio, transcripts, identity updates, and conversation events.
 
-## Persistent speaker identity
+## Speaker identity
 
-Identity is a committed model fact on the wire. Recording-local lanes look
-like `speaker_0` and `speaker_1`; a resolved `person_id` is durable across
-sessions for the organization that enrolled the voice. When a known voice
-comes back, the model resumes that person's state and says so.
+Conversation-local labels look like `speaker_0`. When the model resolves an
+enrolled caller, it emits a durable `person_id` and display name. Returning
+callers resume their saved speaker state.
 
 ```python
 realtime = model.sessions[-1]
-
 
 @realtime.on("prosody_identity")
 def on_identity(event):
     print(event.speaker_id, event.person_id, event.display_name)
 ```
 
-## Consume model events
+## Events
 
-Each `RealtimeSession` emits typed events from the gateway:
-
-- `prosody_transcript` carries committed words with `speaker_id`, `start_ms`,
-  and `end_ms`.
-- `prosody_event` carries `SpeakerChangeEvent`, `NewSpeakerEvent`, or
-  `IdentityResolvedEvent`.
-- `prosody_identity` announces a committed returning person.
-- `prosody_text` carries the model's generated text stream.
+| Event | |
+| --- | --- |
+| `prosody_transcript` | Committed words with `speaker_id`, `start_ms`, `end_ms` |
+| `prosody_event` | Speaker change, new speaker, or identity resolved |
+| `prosody_identity` | Returning person committed |
+| `prosody_text` | Generated text stream |
 
 ```python
 @realtime.on("prosody_event")
@@ -93,14 +67,9 @@ def on_model_event(event):
     print(event.to_dict())
 ```
 
-Speaker events are model commitments. Their timestamps point to the relevant
-audio position, including cases where the model resolves a lane after more
-audio arrives.
+## Lower-level bridge
 
-## Use the bridge directly
-
-`FullDuplexBridge` is the lower-level integration for workers that publish and
-subscribe to LiveKit tracks themselves.
+For workers that publish and subscribe to tracks directly:
 
 ```python
 from livekit.plugins.prosodyai import (
@@ -125,8 +94,8 @@ await bridge.run(
 )
 ```
 
-`uplink_pcm16()` yields little-endian mono PCM16. The bridge converts it to the
-gateway's Opus stream and returns little-endian mono PCM16 for publication.
+`uplink_pcm16()` yields little-endian mono PCM16. The bridge returns the same
+format for publication.
 
 ## License
 
