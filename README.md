@@ -47,6 +47,7 @@ callers resume their saved speaker state.
 ```python
 realtime = model.sessions[-1]
 
+
 @realtime.on("prosody_identity")
 def on_identity(event):
     print(event.speaker_id, event.person_id, event.display_name)
