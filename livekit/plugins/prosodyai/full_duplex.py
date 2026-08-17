@@ -104,6 +104,12 @@ logger = logging.getLogger("livekit.plugins.prosodyai.full_duplex")
 GATEWAY_SAMPLE_RATE = 24_000
 GATEWAY_FRAME_SAMPLES = 1_920
 
+# How long the uplink waits for the gateway to bind its model session before
+# it calls the socket dead. Cold-starting a replica loads Mimi, ProsodySSM,
+# Nemotron, Sortformer, and PersonaPlex, so the budget is generous; the point
+# is that the wait ends in a raised error instead of a silent call.
+GATEWAY_READY_TIMEOUT = 120.0
+
 
 @dataclass
 class ReadyEvent:
@@ -277,10 +283,22 @@ class FullDuplexBridge:
 
             async def send_uplink() -> None:
                 nonlocal uplink_buf
+                # Hold the room's audio until the gateway binds its model
+                # session, then stream every frame. Testing readiness per
+                # frame instead discarded whatever the caller said during the
+                # handshake, and a handshake that never arrived discarded the
+                # whole call in silence.
+                try:
+                    await asyncio.wait_for(
+                        self._ready.wait(), timeout=GATEWAY_READY_TIMEOUT
+                    )
+                except asyncio.TimeoutError:
+                    raise RuntimeError(
+                        "gateway never completed its handshake within "
+                        f"{GATEWAY_READY_TIMEOUT}s; no uplink audio was sent"
+                    ) from None
                 async for frame in uplink_pcm16:
                     if self._closed or not frame:
-                        continue
-                    if not self._ready.is_set():
                         continue
                     float_room = pcm16_le_to_float32(frame)
                     float_24k = resample_float32(
