@@ -652,6 +652,12 @@ class RoomEventType(WireEventType):
     TRANSCRIPT = "prosodyai.transcript"
 
 
+# The agent's own lane on the transcript. Jarvis is the other party on the
+# call, not a voice the tracker diarized out of the caller's audio, so his
+# words carry this label rather than a ``speaker_N`` lane.
+AGENT_SPEAKER_ID = "agent"
+
+
 @dataclass(frozen=True)
 class TranscriptDelta:
     """One committed span of a speaker's words, times in their own audio."""

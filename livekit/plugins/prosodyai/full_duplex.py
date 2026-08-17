@@ -280,6 +280,8 @@ class FullDuplexBridge:
                 async for frame in uplink_pcm16:
                     if self._closed or not frame:
                         continue
+                    if not self._ready.is_set():
+                        continue
                     float_room = pcm16_le_to_float32(frame)
                     float_24k = resample_float32(
                         float_room,
