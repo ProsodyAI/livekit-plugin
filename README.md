@@ -83,6 +83,7 @@ connection = GatewayConnection.from_environment()
 bridge = FullDuplexBridge(
     FullDuplexBridgeConfig(
         url=connection.url,
+        api_key=connection.api_key,
         room_sample_rate=24_000,
         publish_sample_rate=24_000,
     )
