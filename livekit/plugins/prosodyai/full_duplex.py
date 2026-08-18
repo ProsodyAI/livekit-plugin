@@ -289,9 +289,7 @@ class FullDuplexBridge:
                 # handshake, and a handshake that never arrived discarded the
                 # whole call in silence.
                 try:
-                    await asyncio.wait_for(
-                        self._ready.wait(), timeout=GATEWAY_READY_TIMEOUT
-                    )
+                    await asyncio.wait_for(self._ready.wait(), timeout=GATEWAY_READY_TIMEOUT)
                 except asyncio.TimeoutError:
                     raise RuntimeError(
                         "gateway never completed its handshake within "
