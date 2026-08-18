@@ -40,7 +40,6 @@ from dataclasses import MISSING, dataclass, field, fields, is_dataclass
 from enum import Enum
 from typing import Any, ClassVar, Mapping, Optional, Union, get_args, get_origin, get_type_hints
 
-
 #: The discriminator key every typed event carries. Union dispatch reads it,
 #: serialization writes it, and the 0x04/0x05 frame bodies drop it.
 WIRE_TYPE_KEY = "type"
