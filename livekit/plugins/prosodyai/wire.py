@@ -26,14 +26,23 @@ turn the breakage into a fake committed fact. Optional fields are the ones
 today's producers legitimately send as null; they parse to ``None`` and
 nothing else. Unrecognized event types parse to ``None`` so the vocabulary
 can grow model-side first without breaking a consumer.
+
+Serializing mirrors parsing. ``parse_wire`` derives every coercion from the
+declared fields, and ``to_wire`` walks the same declaration back out, so a
+shape's payload round-trips through its own parser and a new field needs no
+edit at either site.
 """
 
 from __future__ import annotations
 
 import collections.abc
-from dataclasses import MISSING, asdict, dataclass, field, fields, is_dataclass
+from dataclasses import MISSING, dataclass, field, fields, is_dataclass
 from enum import Enum
 from typing import Any, ClassVar, Mapping, Optional, Union, get_args, get_origin, get_type_hints
+
+#: The discriminator key every typed event carries. Union dispatch reads it,
+#: serialization writes it, and the 0x04/0x05 frame bodies drop it.
+WIRE_TYPE_KEY = "type"
 
 
 class WireEventType(str, Enum):
@@ -85,7 +94,8 @@ def _coerce_item(annotation: Any, item: Any, key: str, owner: str) -> Any:
     if get_origin(annotation) is Union:
         if not isinstance(item, Mapping):
             return None
-        shape = {cls.TYPE.value: cls for cls in get_args(annotation)}.get(str(item.get("type")))
+        by_type = {cls.TYPE.value: cls for cls in get_args(annotation)}
+        shape = by_type.get(str(item.get(WIRE_TYPE_KEY)))
         return None if shape is None else parse_wire(shape, item, f"{owner} {key}")
     return _coerce(annotation, item, key, owner)
 
@@ -152,11 +162,55 @@ def _event_shape(family: type, union: Any, entry: Mapping[str, Any]) -> Any:
     model-side first without breaking a consumer.
     """
     try:
-        event_type = family(str(entry.get("type")))
+        event_type = family(str(entry.get(WIRE_TYPE_KEY)))
     except ValueError:
         return None
     shape = {cls.TYPE: cls for cls in get_args(union)}[event_type]
     return parse_wire(shape, entry, f"{event_type.value} event")
+
+
+class WireShape:
+    """One declared wire shape. Its fields are the whole serialize contract.
+
+    A subclass that sets ``TYPE`` leads its payload with the discriminator;
+    the 0x04 and 0x05 frame bodies drop it again through ``to_payload``.
+    """
+
+    TYPE: ClassVar[Optional[WireEventType]] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return to_wire(self)
+
+    def to_payload(self) -> dict[str, Any]:
+        """The same payload without the discriminator, for frames that tag
+        their type in the frame kind byte instead of the body."""
+        body = to_wire(self)
+        body.pop(WIRE_TYPE_KEY, None)
+        return body
+
+
+def to_wire(value: Any) -> Any:
+    """Serialize one declared shape, or one field of one, to its payload form.
+
+    The inverse of ``parse_wire``, walking the same field declaration: the
+    discriminator leads, enum members become their wire value, and nested
+    shapes and sequences serialize through the same walk. Deriving it matters
+    most for a nested union member, whose ``TYPE`` is a ``ClassVar`` and so
+    never appears in ``dataclasses.asdict``; a payload missing it parses back
+    to nothing at all, silently.
+    """
+    if isinstance(value, WireShape):
+        payload: dict[str, Any] = {} if value.TYPE is None else {WIRE_TYPE_KEY: value.TYPE.value}
+        for declared in fields(value):
+            payload[declared.name] = to_wire(getattr(value, declared.name))
+        return payload
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, (tuple, list)):
+        return [to_wire(item) for item in value]
+    if isinstance(value, Mapping):
+        return {key: to_wire(item) for key, item in value.items()}
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +226,7 @@ class TrackerEventType(WireEventType):
 
 
 @dataclass(frozen=True)
-class TrackerSpeakerChangeEvent:
+class TrackerSpeakerChangeEvent(WireShape):
     """The outer recurrence committed the floor to a different lane.
 
     ``frame_ms`` is retrodictive: it points at the segment's onset on the
@@ -189,12 +243,9 @@ class TrackerSpeakerChangeEvent:
     known_id: Optional[str] = None
     previous_known_id: Optional[str] = None
 
-    def to_dict(self) -> dict:
-        return {"type": self.TYPE.value, **asdict(self)}
-
 
 @dataclass(frozen=True)
-class TrackerNewSpeakerEvent:
+class TrackerNewSpeakerEvent(WireShape):
     """The outer recurrence opened a state lane for a new voice."""
 
     TYPE: ClassVar[TrackerEventType] = TrackerEventType.NEW_SPEAKER
@@ -203,12 +254,9 @@ class TrackerNewSpeakerEvent:
     lane: int
     evidence_seconds: float
 
-    def to_dict(self) -> dict:
-        return {"type": self.TYPE.value, **asdict(self)}
-
 
 @dataclass(frozen=True)
-class TrackerIdentityResolvedEvent:
+class TrackerIdentityResolvedEvent(WireShape):
     """A lane matched a stored person, once per lane, at its first commit.
 
     ``verified`` is true on every committed decision: the decoder's absolute
@@ -221,9 +269,6 @@ class TrackerIdentityResolvedEvent:
     lane: int
     person_id: str
     verified: bool
-
-    def to_dict(self) -> dict:
-        return {"type": self.TYPE.value, **asdict(self)}
 
 
 TrackerEvent = Union[
@@ -253,7 +298,7 @@ class ConversationEventType(WireEventType):
 
 
 @dataclass(frozen=True)
-class ConversationStateDeltaEvent:
+class ConversationStateDeltaEvent(WireShape):
     """``state_delta``: the lane's state moved decisively against its own
     baseline.
 
@@ -273,12 +318,9 @@ class ConversationStateDeltaEvent:
     magnitude: float
     resolved: bool
 
-    def to_dict(self) -> dict:
-        return {"type": self.TYPE.value, **asdict(self)}
-
 
 @dataclass(frozen=True)
-class ConversationTurnBoundaryEvent:
+class ConversationTurnBoundaryEvent(WireShape):
     """``turn_boundary``: the model committed the floor passed between voices.
 
     An instantaneous committed fact. ``frame_ms`` is retrodictive: it points
@@ -291,12 +333,9 @@ class ConversationTurnBoundaryEvent:
     frame_ms: int
     commit_ms: int
 
-    def to_dict(self) -> dict:
-        return {"type": self.TYPE.value, **asdict(self)}
-
 
 @dataclass(frozen=True)
-class ConversationBargeInEvent:
+class ConversationBargeInEvent(WireShape):
     """``barge_in``: the model committed a second voice entered against held
     speech.
 
@@ -311,9 +350,6 @@ class ConversationBargeInEvent:
     commit_ms: int
     duration_ms: int
     resolved: bool
-
-    def to_dict(self) -> dict:
-        return {"type": self.TYPE.value, **asdict(self)}
 
 
 ConversationWireEvent = Union[
@@ -347,7 +383,7 @@ class IdentityDecision(WireEventType):
 
 
 @dataclass(frozen=True)
-class IdentitySpan:
+class IdentitySpan(WireShape):
     """One committed lane decision over a span of audio-clock time.
 
     ``start_ms`` and ``end_ms`` bound the audio the decision covers, and are
@@ -369,15 +405,9 @@ class IdentitySpan:
     late_resolved: bool = False
     unique_voice: bool = False
 
-    def to_dict(self) -> dict:
-        return {
-            "decision": self.decision.value,
-            **{k: v for k, v in asdict(self).items() if k != "decision"},
-        }
-
 
 @dataclass(frozen=True)
-class IdentityLane:
+class IdentityLane(WireShape):
     """One lane in the session's lane book.
 
     ``person_id`` is the durable cross-session lineage identity, present only
@@ -394,12 +424,9 @@ class IdentityLane:
     is_returning: bool = False
     is_agent: bool = False
 
-    def to_dict(self) -> dict:
-        return asdict(self)
-
 
 @dataclass(frozen=True)
-class IdentityTimeline:
+class IdentityTimeline(WireShape):
     """The session's whole identity history, in commit order.
 
     ``spans`` carries every model assignment in the order the tracker
@@ -413,15 +440,6 @@ class IdentityTimeline:
     spans: tuple[IdentitySpan, ...]
     lanes: tuple[IdentityLane, ...]
     events: tuple[TrackerEvent, ...] = ()
-
-    def to_dict(self) -> dict:
-        return {
-            "schema_version": self.schema_version,
-            "model_provenance": dict(self.model_provenance),
-            "spans": [span.to_dict() for span in self.spans],
-            "lanes": [lane.to_dict() for lane in self.lanes],
-            "events": [event.to_dict() for event in self.events],
-        }
 
 
 def parse_identity_span(entry: Mapping[str, Any]) -> IdentitySpan:
@@ -478,7 +496,7 @@ class GatewayEventType(WireEventType):
 
 
 @dataclass(frozen=True)
-class GatewaySpeakerChangeEvent:
+class GatewaySpeakerChangeEvent(WireShape):
     """``prosodyai.speaker_change``: the model committed the floor moved lanes.
 
     ``timestamp_ms`` is retrodictive: it points at the turn's onset on the
@@ -496,12 +514,9 @@ class GatewaySpeakerChangeEvent:
     display_name: Optional[str]
     is_agent: bool
 
-    def to_dict(self) -> dict:
-        return {"type": self.TYPE.value, **asdict(self)}
-
 
 @dataclass(frozen=True)
-class GatewayNewSpeakerEvent:
+class GatewayNewSpeakerEvent(WireShape):
     """``prosodyai.new_speaker``: a lane opened for a voice never heard here."""
 
     TYPE: ClassVar[GatewayEventType] = GatewayEventType.NEW_SPEAKER
@@ -511,12 +526,9 @@ class GatewayNewSpeakerEvent:
     speaker_id: str
     evidence_seconds: float
 
-    def to_dict(self) -> dict:
-        return {"type": self.TYPE.value, **asdict(self)}
-
 
 @dataclass(frozen=True)
-class GatewayIdentityResolvedEvent:
+class GatewayIdentityResolvedEvent(WireShape):
     """``prosodyai.identity_resolved``: a lane matched a stored person.
 
     Fires once per lane, at its first committed segment. ``verified`` is true
@@ -532,12 +544,9 @@ class GatewayIdentityResolvedEvent:
     display_name: Optional[str]
     verified: bool
 
-    def to_dict(self) -> dict:
-        return {"type": self.TYPE.value, **asdict(self)}
-
 
 @dataclass(frozen=True)
-class GatewayAgentToolEvent:
+class GatewayAgentToolEvent(WireShape):
     """``prosodyai.agent_tool``: one completed capability, shown to the caller.
 
     The reasoner chose the tool, the gateway ran it, and ``result`` is what
@@ -552,12 +561,9 @@ class GatewayAgentToolEvent:
     arguments: dict[str, Any] = field(default_factory=dict)
     result: str = ""
 
-    def to_dict(self) -> dict:
-        return {"type": self.TYPE.value, **asdict(self)}
-
 
 @dataclass(frozen=True)
-class GatewayAgentThoughtEvent:
+class GatewayAgentThoughtEvent(WireShape):
     """``prosodyai.agent_thought``: the reasoner's own read of the moment.
 
     One deliberation line per reasoning pass, in the reasoner's own words,
@@ -571,9 +577,6 @@ class GatewayAgentThoughtEvent:
     session_id: str
     text: str
 
-    def to_dict(self) -> dict:
-        return {"type": self.TYPE.value, **asdict(self)}
-
 
 class ToolCallStatus(WireEventType):
     """The lifecycle stages of one capability invocation."""
@@ -584,7 +587,7 @@ class ToolCallStatus(WireEventType):
 
 
 @dataclass(frozen=True)
-class GatewayAgentToolStatusEvent:
+class GatewayAgentToolStatusEvent(WireShape):
     """``prosodyai.agent_tool_status``: one stage of a capability's lifecycle.
 
     ``started`` fires the moment the reasoner commits to running the tool;
@@ -603,13 +606,6 @@ class GatewayAgentToolStatusEvent:
     arguments: dict[str, Any] = field(default_factory=dict)
     result: Optional[str] = None
     error: Optional[str] = None
-
-    def to_dict(self) -> dict:
-        return {
-            "type": self.TYPE.value,
-            "status": self.status.value,
-            **{k: v for k, v in asdict(self).items() if k != "status"},
-        }
 
 
 GatewayModelEvent = Union[
@@ -659,7 +655,7 @@ AGENT_SPEAKER_ID = "agent"
 
 
 @dataclass(frozen=True)
-class TranscriptDelta:
+class TranscriptDelta(WireShape):
     """One committed span of a speaker's words, times in their own audio."""
 
     text: str
@@ -668,7 +664,7 @@ class TranscriptDelta:
 
 
 @dataclass(frozen=True)
-class IdentityEvent:
+class IdentityEvent(WireShape):
     """A committed identity resolution, announced mid-conversation.
 
     ``recognized_at_ms`` is the audio position (ms into the call) of the
@@ -685,15 +681,9 @@ class IdentityEvent:
     is_returning: bool
     recognized_at_ms: int
 
-    def to_payload(self) -> dict:
-        return asdict(self)
-
-    def to_dict(self) -> dict:
-        return {"type": self.TYPE.value, **asdict(self)}
-
 
 @dataclass(frozen=True)
-class TranscriptEvent:
+class TranscriptEvent(WireShape):
     """Words for one tracked frame, attributed by the model's tracker.
 
     Subtitles only. Speaker and identity decisions arrive on the committed
@@ -704,12 +694,6 @@ class TranscriptEvent:
 
     speaker_id: str
     deltas: tuple[TranscriptDelta, ...] = ()
-
-    def to_payload(self) -> dict:
-        return asdict(self)
-
-    def to_dict(self) -> dict:
-        return {"type": self.TYPE.value, **asdict(self)}
 
 
 def parse_identity_payload(frame: Mapping[str, Any]) -> IdentityEvent:
@@ -737,6 +721,10 @@ def parse_transcript_payload(frame: Mapping[str, Any]) -> Optional[TranscriptEve
 SESSION_EVENT_ENVELOPE_VERSION = 1
 SESSION_ENVELOPE_KEYS = ("version", "session_id", "generation", "seq", "type")
 
+#: The envelope's name in the vocabulary manifest. It is the one entry that is
+#: not a discriminated shape, so it has no ``TYPE`` to name it.
+SESSION_ENVELOPE_ENTRY = "session.envelope"
+
 SESSION_STARTED = "session.started"
 SESSION_RESET = "session.reset"
 SESSION_FINALIZED = "session.finalized"
@@ -761,14 +749,8 @@ class SessionEvent:
     fields: Mapping[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "version": self.version,
-            "session_id": self.session_id,
-            "generation": self.generation,
-            "seq": self.seq,
-            "type": self.type,
-            **dict(self.fields),
-        }
+        envelope = {key: getattr(self, key) for key in SESSION_ENVELOPE_KEYS}
+        return {**envelope, **dict(self.fields)}
 
 
 # ---------------------------------------------------------------------------
@@ -800,5 +782,5 @@ def vocabulary() -> dict[str, tuple[str, ...]]:
             TranscriptEvent,
         )
     }
-    entries["session.envelope"] = SESSION_ENVELOPE_KEYS
+    entries[SESSION_ENVELOPE_ENTRY] = SESSION_ENVELOPE_KEYS
     return entries

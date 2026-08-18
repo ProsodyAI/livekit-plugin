@@ -12,12 +12,16 @@ import json
 import logging
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from dataclasses import asdict, dataclass
-from typing import ClassVar
-from urllib.parse import urlencode
+from dataclasses import asdict, dataclass, field
+from typing import TYPE_CHECKING, ClassVar
+from urllib.parse import urlsplit, urlunsplit
 
 import numpy as np
+from websockets.asyncio.client import ClientConnection
 from websockets.asyncio.client import connect as ws_connect
+
+if TYPE_CHECKING:
+    import sphn
 
 from .audio_resample import (
     float32_to_pcm16_le,
@@ -104,6 +108,14 @@ logger = logging.getLogger("livekit.plugins.prosodyai.full_duplex")
 GATEWAY_SAMPLE_RATE = 24_000
 GATEWAY_FRAME_SAMPLES = 1_920
 
+# The gateway origin, the socket it serves, and the header it authenticates on.
+DEFAULT_BASE_URL = "https://api.prosodyai.app"
+GATEWAY_PATH = "/v1/realtime"
+API_KEY_HEADER = "x-api-key"
+
+# What an origin may arrive as, and the transport scheme it connects on.
+_WS_SCHEME = {"http": "ws", "https": "wss", "ws": "ws", "wss": "wss"}
+
 # How long the uplink waits for the gateway to bind its model session before
 # it calls the socket dead. Cold-starting a replica loads Mimi, ProsodySSM,
 # Nemotron, Sortformer, and PersonaPlex, so the budget is generous; the point
@@ -171,36 +183,38 @@ class GatewayEnvError(RuntimeError):
     """The gateway connection settings are missing or contradictory."""
 
 
-def gateway_ws_url(
-    *,
-    api_key: str,
-    base_url: str = "https://api.prosodyai.app",
-) -> str:
-    """Authenticated gateway WebSocket URL. ``base_url`` accepts http(s) or ws(s)."""
-    key = (api_key or "").strip()
-    if not key:
+def gateway_ws_url(*, base_url: str = DEFAULT_BASE_URL) -> str:
+    """The gateway socket for one origin. ``base_url`` is http(s) or ws(s).
+
+    The URL carries no credential. A URL is the most copied string a networked
+    system produces: proxies record it, transports log it, and every failed
+    connect prints it in a traceback. The key travels as ``x-api-key`` on the
+    handshake instead, which is what the gateway reads.
+    """
+    parsed = urlsplit((base_url or "").strip().rstrip("/"))
+    scheme = _WS_SCHEME.get(parsed.scheme.lower())
+    if scheme is None or not parsed.netloc:
         raise GatewayEnvError(
-            "gateway_ws_url received an empty api_key; pass the ProsodyAI API key for your organization"
+            "gateway base_url must be an http(s) or ws(s) origin such as "
+            f"{DEFAULT_BASE_URL}, got {base_url!r}"
         )
-    base = (base_url or "").strip().rstrip("/")
-    if not base:
+    if parsed.query or parsed.fragment:
         raise GatewayEnvError(
-            "gateway_ws_url received an empty base_url; pass the gateway origin, e.g. https://api.prosodyai.app"
+            f"gateway base_url is an origin and carries no query or fragment, got {base_url!r}"
         )
-    if base.startswith("https://"):
-        base = "wss://" + base[len("https://") :]
-    elif base.startswith("http://"):
-        base = "ws://" + base[len("http://") :]
-    url = f"{base}/v1/realtime"
-    sep = "&" if "?" in url else "?"
-    return f"{url}{sep}{urlencode({'api_key': key})}"
+    return urlunsplit((scheme, parsed.netloc, f"{parsed.path}{GATEWAY_PATH}", "", ""))
 
 
 @dataclass(frozen=True)
 class GatewayConnection:
-    """Resolved gateway endpoint. Reads only ``PROSODYAI_API_KEY``."""
+    """Resolved gateway endpoint: the socket, and the key that opens it.
+
+    The key is kept out of ``repr`` so the endpoint stays printable. Reads only
+    ``PROSODYAI_API_KEY``.
+    """
 
     url: str
+    api_key: str = field(repr=False)
 
     @classmethod
     def from_environment(
@@ -217,21 +231,25 @@ class GatewayConnection:
                 "No gateway API key was found: PROSODYAI_API_KEY is unset and no "
                 "api_key argument was passed; set the environment variable or pass api_key"
             )
-        return cls(
-            url=gateway_ws_url(
-                api_key=key,
-                base_url=base_url or "https://api.prosodyai.app",
-            )
-        )
+        return cls(url=gateway_ws_url(base_url=base_url or DEFAULT_BASE_URL), api_key=key)
 
 
 @dataclass(frozen=True)
 class FullDuplexBridgeConfig:
-    """Connection settings for one full-duplex session."""
+    """Connection settings for one full-duplex session.
+
+    The key is kept out of ``repr`` so the config stays printable.
+    """
 
     url: str
+    api_key: str = field(repr=False)
     room_sample_rate: int = 16_000
     publish_sample_rate: int = GATEWAY_SAMPLE_RATE
+
+    @property
+    def headers(self) -> dict[str, str]:
+        """The handshake credential, on the header rather than in the URL."""
+        return {API_KEY_HEADER: self.api_key}
 
 
 class FullDuplexBridge:
@@ -245,6 +263,80 @@ class FullDuplexBridge:
     @property
     def ready(self) -> asyncio.Event:
         return self._ready
+
+    async def _send_uplink(
+        self,
+        uplink_pcm16: AsyncIterator[bytes],
+        websocket: ClientConnection,
+        writer: sphn.OpusStreamWriter,
+    ) -> None:
+        """Resample room PCM onto the gateway's 80 ms grid and stream it as Opus.
+
+        Hold the room's audio until the gateway binds its model session, then
+        stream every frame. Testing readiness per frame instead discarded
+        whatever the caller said during the handshake, and a handshake that
+        never arrived discarded the whole call in silence.
+        """
+        try:
+            await asyncio.wait_for(self._ready.wait(), timeout=GATEWAY_READY_TIMEOUT)
+        except asyncio.TimeoutError:
+            raise RuntimeError(
+                "gateway never completed its handshake within "
+                f"{GATEWAY_READY_TIMEOUT}s; no uplink audio was sent"
+            ) from None
+        pending = np.zeros(0, dtype=np.float32)
+        async for frame in uplink_pcm16:
+            if self._closed or not frame:
+                continue
+            float_24k = resample_float32(
+                pcm16_le_to_float32(frame),
+                self._config.room_sample_rate,
+                GATEWAY_SAMPLE_RATE,
+            )
+            pending = np.concatenate([pending, float_24k])
+            while pending.shape[0] >= GATEWAY_FRAME_SAMPLES:
+                block = pending[:GATEWAY_FRAME_SAMPLES]
+                pending = pending[GATEWAY_FRAME_SAMPLES:]
+                packet = writer.append_pcm(block)
+                if packet:
+                    await websocket.send(bytes([KIND_AUDIO]) + packet)
+
+    async def _receive_downlink(
+        self,
+        websocket: ClientConnection,
+        reader: sphn.OpusStreamReader,
+        *,
+        on_downlink_pcm16: Callable[[bytes], Awaitable[None]],
+        on_event: Callable[[GatewayEvent], Awaitable[None]] | None,
+    ) -> None:
+        """Split the gateway's frames into published model PCM and typed events."""
+        async for message in websocket:
+            if self._closed:
+                break
+            if isinstance(message, str) or not message:
+                continue
+            kind = message[0]
+            payload = message[1:]
+            if kind == KIND_AUDIO:
+                pcm = reader.append_bytes(payload)
+                if pcm is None or pcm.size == 0:
+                    continue
+                flat = np.asarray(pcm, dtype=np.float32).reshape(-1)
+                if self._config.publish_sample_rate != GATEWAY_SAMPLE_RATE:
+                    flat = resample_float32(
+                        flat,
+                        GATEWAY_SAMPLE_RATE,
+                        self._config.publish_sample_rate,
+                    )
+                await on_downlink_pcm16(float32_to_pcm16_le(flat))
+                continue
+            control = parse_control_event(kind, payload)
+            if control is None:
+                continue
+            if isinstance(control, ReadyEvent):
+                self._ready.set()
+            if on_event is not None:
+                await on_event(control)
 
     async def run(
         self,
@@ -269,6 +361,7 @@ class FullDuplexBridge:
 
         async with ws_connect(
             self._config.url,
+            additional_headers=self._config.headers,
             max_size=16 * 1024 * 1024,
             open_timeout=120.0,
             # The gateway queues uplink frames and steps them on a pump task,
@@ -277,70 +370,21 @@ class FullDuplexBridge:
             # on this socket, and a transport ping buys nothing over it.
             ping_interval=None,
         ) as websocket:
-            writer = sphn.OpusStreamWriter(GATEWAY_SAMPLE_RATE)
-            reader = sphn.OpusStreamReader(GATEWAY_SAMPLE_RATE)
-            uplink_buf = np.zeros(0, dtype=np.float32)
-
-            async def send_uplink() -> None:
-                nonlocal uplink_buf
-                # Hold the room's audio until the gateway binds its model
-                # session, then stream every frame. Testing readiness per
-                # frame instead discarded whatever the caller said during the
-                # handshake, and a handshake that never arrived discarded the
-                # whole call in silence.
-                try:
-                    await asyncio.wait_for(self._ready.wait(), timeout=GATEWAY_READY_TIMEOUT)
-                except asyncio.TimeoutError:
-                    raise RuntimeError(
-                        "gateway never completed its handshake within "
-                        f"{GATEWAY_READY_TIMEOUT}s; no uplink audio was sent"
-                    ) from None
-                async for frame in uplink_pcm16:
-                    if self._closed or not frame:
-                        continue
-                    float_room = pcm16_le_to_float32(frame)
-                    float_24k = resample_float32(
-                        float_room,
-                        self._config.room_sample_rate,
-                        GATEWAY_SAMPLE_RATE,
-                    )
-                    uplink_buf = np.concatenate([uplink_buf, float_24k])
-                    while uplink_buf.shape[0] >= GATEWAY_FRAME_SAMPLES:
-                        block = uplink_buf[:GATEWAY_FRAME_SAMPLES]
-                        uplink_buf = uplink_buf[GATEWAY_FRAME_SAMPLES:]
-                        packet = writer.append_pcm(block)
-                        if packet:
-                            await websocket.send(bytes([KIND_AUDIO]) + packet)
-
-            send_task = asyncio.create_task(send_uplink(), name="duplex-uplink")
+            send_task = asyncio.create_task(
+                self._send_uplink(
+                    uplink_pcm16,
+                    websocket,
+                    sphn.OpusStreamWriter(GATEWAY_SAMPLE_RATE),
+                ),
+                name="duplex-uplink",
+            )
             try:
-                async for message in websocket:
-                    if self._closed:
-                        break
-                    if isinstance(message, str) or not message:
-                        continue
-                    kind = message[0]
-                    payload = message[1:]
-                    if kind == KIND_AUDIO:
-                        pcm = reader.append_bytes(payload)
-                        if pcm is None or pcm.size == 0:
-                            continue
-                        flat = np.asarray(pcm, dtype=np.float32).reshape(-1)
-                        if self._config.publish_sample_rate != GATEWAY_SAMPLE_RATE:
-                            flat = resample_float32(
-                                flat,
-                                GATEWAY_SAMPLE_RATE,
-                                self._config.publish_sample_rate,
-                            )
-                        await on_downlink_pcm16(float32_to_pcm16_le(flat))
-                        continue
-                    control = parse_control_event(kind, payload)
-                    if control is None:
-                        continue
-                    if isinstance(control, ReadyEvent):
-                        self._ready.set()
-                    if on_event is not None:
-                        await on_event(control)
+                await self._receive_downlink(
+                    websocket,
+                    sphn.OpusStreamReader(GATEWAY_SAMPLE_RATE),
+                    on_downlink_pcm16=on_downlink_pcm16,
+                    on_event=on_event,
+                )
             finally:
                 self._closed = True
                 send_task.cancel()

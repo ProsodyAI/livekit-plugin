@@ -181,6 +181,7 @@ class RealtimeSession(llm.RealtimeSession[EventTypes]):
         self._bridge = FullDuplexBridge(
             FullDuplexBridgeConfig(
                 url=self._model._connection.url,
+                api_key=self._model._connection.api_key,
                 room_sample_rate=room_sample_rate,
                 publish_sample_rate=GATEWAY_SAMPLE_RATE,
             )
