@@ -516,7 +516,13 @@ class GatewaySpeakerChangeEvent(WireShape):
 
 @dataclass(frozen=True)
 class GatewayNewSpeakerEvent(WireShape):
-    """``prosodyai.new_speaker``: a lane opened for a voice never heard here."""
+    """``prosodyai.new_speaker``: a lane opened for a voice never heard here.
+
+    The voice is new; the person is not optional. The gateway mints the
+    durable person id at the commit that opened the lane, so the first
+    event a caller sees for a speaker already names who the session will
+    persist them as.
+    """
 
     TYPE: ClassVar[GatewayEventType] = GatewayEventType.NEW_SPEAKER
 
@@ -524,6 +530,8 @@ class GatewayNewSpeakerEvent(WireShape):
     session_id: str
     speaker_id: str
     evidence_seconds: float
+    person_id: Optional[str]
+    display_name: Optional[str]
 
 
 @dataclass(frozen=True)
@@ -626,6 +634,7 @@ def parse_gateway_model_event(
 class RoomEventType(WireEventType):
     """The republished event names on the LiveKit data topic."""
 
+    AGENT_STATE = "agent.state"
     TEXT = "prosodyai.text"
     IDENTITY = "prosodyai.identity"
     TRANSCRIPT = "prosodyai.transcript"
@@ -635,6 +644,29 @@ class RoomEventType(WireEventType):
 # call, not a voice the tracker diarized out of the caller's audio, so his
 # words carry this label rather than a ``speaker_N`` lane.
 AGENT_SPEAKER_ID = "agent"
+
+
+@dataclass(frozen=True)
+class AgentStateEvent(WireShape):
+    """``agent.state``: the worker said where the call stands.
+
+    The worker's own announcement about the socket it holds, published when
+    the gateway binds. It reports the state of the connection and decides
+    nothing about the conversation.
+    """
+
+    TYPE: ClassVar[RoomEventType] = RoomEventType.AGENT_STATE
+
+    state: str
+
+
+@dataclass(frozen=True)
+class TextEvent(WireShape):
+    """``prosodyai.text``: one token of the model's monologue, as it is spoken."""
+
+    TYPE: ClassVar[RoomEventType] = RoomEventType.TEXT
+
+    text: str
 
 
 @dataclass(frozen=True)
@@ -737,6 +769,48 @@ class SessionEvent:
 
 
 # ---------------------------------------------------------------------------
+# The room topic: what a joined client sees.
+
+ROOM_TOPIC_EVENTS: tuple[type, ...] = (
+    AgentStateEvent,
+    TextEvent,
+    IdentityEvent,
+    TranscriptEvent,
+    GatewaySpeakerChangeEvent,
+    GatewayNewSpeakerEvent,
+    GatewayIdentityResolvedEvent,
+    GatewayAgentToolEvent,
+    GatewayAgentToolStatusEvent,
+    ConversationStateDeltaEvent,
+    ConversationTurnBoundaryEvent,
+    ConversationBargeInEvent,
+)
+"""Every shape republished on the LiveKit data topic, in the order a client
+reads them: the worker's own announcement, the model's monologue, the
+identity and transcript republications, the committed gateway events, and the
+conversation events relayed verbatim. A client's event vocabulary is this
+tuple. The tracker events stay off it: they are the model's own clock and the
+gateway relabels them before anybody outside sees them."""
+
+
+def parse_room_event(payload: Mapping[str, Any]) -> Optional[Any]:
+    """Parse one payload off the LiveKit data topic into its declared shape.
+
+    The room topic's single parse site, and the reason a client needs no
+    vocabulary of its own: the shapes come from :data:`ROOM_TOPIC_EVENTS`.
+    Strict on a recognized type, and ``None`` for one nobody declared, so a
+    grown vocabulary never breaks a joined client.
+    """
+    if not isinstance(payload, Mapping):
+        return None
+    shapes = {shape.TYPE.value: shape for shape in ROOM_TOPIC_EVENTS}
+    shape = shapes.get(str(payload.get(WIRE_TYPE_KEY)))
+    if shape is None:
+        return None
+    return parse_wire(shape, payload, f"{shape.TYPE.value} event")
+
+
+# ---------------------------------------------------------------------------
 # The vocabulary manifest: what the drift tests compare across trees.
 
 
@@ -752,16 +826,7 @@ def vocabulary() -> dict[str, tuple[str, ...]]:
             TrackerSpeakerChangeEvent,
             TrackerNewSpeakerEvent,
             TrackerIdentityResolvedEvent,
-            ConversationStateDeltaEvent,
-            ConversationTurnBoundaryEvent,
-            ConversationBargeInEvent,
-            GatewaySpeakerChangeEvent,
-            GatewayNewSpeakerEvent,
-            GatewayIdentityResolvedEvent,
-            GatewayAgentToolEvent,
-            GatewayAgentToolStatusEvent,
-            IdentityEvent,
-            TranscriptEvent,
+            *ROOM_TOPIC_EVENTS,
         )
     }
     entries[SESSION_ENVELOPE_ENTRY] = SESSION_ENVELOPE_KEYS
