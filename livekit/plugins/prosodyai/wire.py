@@ -491,7 +491,6 @@ class GatewayEventType(WireEventType):
     NEW_SPEAKER = "prosodyai.new_speaker"
     IDENTITY_RESOLVED = "prosodyai.identity_resolved"
     AGENT_TOOL = "prosodyai.agent_tool"
-    AGENT_THOUGHT = "prosodyai.agent_thought"
     AGENT_TOOL_STATUS = "prosodyai.agent_tool_status"
 
 
@@ -549,9 +548,10 @@ class GatewayIdentityResolvedEvent(WireShape):
 class GatewayAgentToolEvent(WireShape):
     """``prosodyai.agent_tool``: one completed capability, shown to the caller.
 
-    The reasoner chose the tool, the gateway ran it, and ``result`` is what
-    the speech model was told. This is the acting half of the reasoner's
-    deliberation; ``prosodyai.agent_thought`` is the reading half.
+    The speech model's monologue asked for the capability, the gateway ran
+    it, and ``result`` is the clause Jarvis was given to say. The reading
+    half of the deliberation is the monologue itself, which reaches the
+    caller as the agent's own transcript.
     """
 
     TYPE: ClassVar[GatewayEventType] = GatewayEventType.AGENT_TOOL
@@ -560,22 +560,6 @@ class GatewayAgentToolEvent(WireShape):
     name: str
     arguments: dict[str, Any] = field(default_factory=dict)
     result: str = ""
-
-
-@dataclass(frozen=True)
-class GatewayAgentThoughtEvent(WireShape):
-    """``prosodyai.agent_thought``: the reasoner's own read of the moment.
-
-    One deliberation line per reasoning pass, in the reasoner's own words,
-    written before it decides whether any capability is warranted. It is
-    Jarvis thinking, and it is never spoken: the speech model never receives
-    it and it carries no measurement, verdict, or score.
-    """
-
-    TYPE: ClassVar[GatewayEventType] = GatewayEventType.AGENT_THOUGHT
-
-    session_id: str
-    text: str
 
 
 class ToolCallStatus(WireEventType):
@@ -590,11 +574,11 @@ class ToolCallStatus(WireEventType):
 class GatewayAgentToolStatusEvent(WireShape):
     """``prosodyai.agent_tool_status``: one stage of a capability's lifecycle.
 
-    ``started`` fires the moment the reasoner commits to running the tool;
-    ``completed`` carries the result; ``failed`` carries the error. PersonaPlex
-    only ever receives the completed exchange (it cannot await a round trip), so
-    these events exist for the caller surface and never join the control
-    channel. ``call_id`` ties the stages together.
+    ``started`` fires the moment the executor takes the monologue's intent;
+    ``completed`` carries the result; ``failed`` carries the error. What the
+    speech model receives is a clause to say, on the control channel, so
+    these events are the operator's view of the same invocation and never
+    join that channel. ``call_id`` ties the stages together.
     """
 
     TYPE: ClassVar[GatewayEventType] = GatewayEventType.AGENT_TOOL_STATUS
@@ -613,7 +597,6 @@ GatewayModelEvent = Union[
     GatewayNewSpeakerEvent,
     GatewayIdentityResolvedEvent,
     GatewayAgentToolEvent,
-    GatewayAgentThoughtEvent,
     GatewayAgentToolStatusEvent,
 ]
 """A committed model decision off the gateway's 0x06 event channel."""
@@ -776,7 +759,6 @@ def vocabulary() -> dict[str, tuple[str, ...]]:
             GatewayNewSpeakerEvent,
             GatewayIdentityResolvedEvent,
             GatewayAgentToolEvent,
-            GatewayAgentThoughtEvent,
             GatewayAgentToolStatusEvent,
             IdentityEvent,
             TranscriptEvent,

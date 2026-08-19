@@ -57,10 +57,10 @@ from .wire import (
     ConversationWireEvent as ConversationEvent,
 )
 from .wire import (
-    GatewayAgentThoughtEvent as AgentThoughtEvent,
+    GatewayAgentToolEvent as AgentToolEvent,
 )
 from .wire import (
-    GatewayAgentToolEvent as AgentToolEvent,
+    GatewayAgentToolStatusEvent as AgentToolStatusEvent,
 )
 from .wire import (
     GatewayIdentityResolvedEvent as IdentityResolvedEvent,
@@ -78,8 +78,8 @@ from .wire import (
 __all__ = [
     "GATEWAY_FRAME_SAMPLES",
     "GATEWAY_SAMPLE_RATE",
-    "AgentThoughtEvent",
     "AgentToolEvent",
+    "AgentToolStatusEvent",
     "BargeInEvent",
     "ConversationEvent",
     "FullDuplexBridge",

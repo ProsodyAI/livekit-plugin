@@ -5,8 +5,8 @@ Inference runs server-side; this plugin is pure I/O. ``RealtimeModel`` and
 """
 
 from .full_duplex import (
-    AgentThoughtEvent,
     AgentToolEvent,
+    AgentToolStatusEvent,
     BargeInEvent,
     ConversationEvent,
     FullDuplexBridge,
@@ -35,8 +35,8 @@ from .realtime import (
 from .version import __version__
 
 __all__ = [
-    "AgentThoughtEvent",
     "AgentToolEvent",
+    "AgentToolStatusEvent",
     "BargeInEvent",
     "ConversationEvent",
     "FullDuplexBridge",
