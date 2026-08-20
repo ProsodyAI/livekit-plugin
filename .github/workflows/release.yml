@@ -63,15 +63,24 @@ jobs:
 
           tag = os.environ["RELEASE_TAG_INPUT"].strip()
           with Path("pyproject.toml").open("rb") as project_file:
-              version = tomllib.load(project_file)["project"]["version"]
+              project = tomllib.load(project_file)["project"]
+          if "version" not in project.get("dynamic", ()):
+              raise SystemExit(
+                  "pyproject.toml must declare version as dynamic, sourced from version.py."
+              )
 
+          # version.py is the hatch version source; the assignment line is the release version.
           version_source = Path("livekit/plugins/prosodyai/version.py").read_text(
               encoding="utf-8"
           )
-          expected_assignment = f'__version__ = "{version}"'
-          if expected_assignment not in version_source:
+          version = ""
+          for line in version_source.splitlines():
+              if line.startswith("__version__"):
+                  version = line.split("=", 1)[1].strip().strip('"')
+                  break
+          if not version:
               raise SystemExit(
-                  "livekit/plugins/prosodyai/version.py does not match project.version."
+                  "livekit/plugins/prosodyai/version.py does not assign __version__."
               )
 
           readme = Path("README.md").read_text(encoding="utf-8").lower()
