@@ -101,6 +101,37 @@ await bridge.run(
 `uplink_pcm16()` yields little-endian mono PCM16. The bridge returns the same
 format for publication.
 
+## Speech backends
+
+The bridge drives its speaking loop through the `SpeechBackend` protocol.
+PersonaPlex on the ProsodyAI gateway is the default. Another
+speech-to-speech loop (an OpenAI Realtime-style, Gemini Live-style, or
+Moshi-style session) plugs in as a class with five members: a
+`capabilities` property returning a frozen `SpeechBackendCapabilities`
+(`full_duplex`, `accepts_voice_prompt`, `accepts_role_prompt`,
+`sample_rate`), `open(config)` taking a `SpeechSessionConfig`,
+`send_audio(samples)` taking mono float32 at the declared rate,
+`receive()` yielding `SessionOpened`, `SpeechAudio`, and `SpeechText`
+items in production order, and `close()`.
+
+```python
+from livekit.plugins.prosodyai import FullDuplexBridge, FullDuplexBridgeConfig
+
+bridge = FullDuplexBridge(
+    FullDuplexBridgeConfig(room_sample_rate=16_000, publish_sample_rate=16_000,
+                           role_prompt="You are a concierge."),
+    backend=MyRealtimeBackend(),
+)
+```
+
+Capabilities are declared facts. A turn-based backend declares
+`full_duplex=False` and the bridge carries that declaration as-is; the
+bridge contains no turn detector. A prompt on the config that the
+backend's capabilities exclude raises `BackendCapabilityError` at
+construction. Speaker identity, transcripts, and conversation events are
+ProsodySSM readouts on the gateway session; they arrive with the default
+PersonaPlex backend.
+
 ## License
 
 MIT © [ProsodyAI](https://prosodyai.app)
