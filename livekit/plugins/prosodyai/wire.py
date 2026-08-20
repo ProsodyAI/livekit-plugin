@@ -295,6 +295,7 @@ class ConversationEventType(WireEventType):
     STATE_DELTA = "state_delta"
     TURN_BOUNDARY = "turn_boundary"
     BARGE_IN = "barge_in"
+    ENTITY_SPAN = "entity_span"
 
 
 @dataclass(frozen=True)
@@ -352,10 +353,33 @@ class ConversationBargeInEvent(WireShape):
     resolved: bool
 
 
+@dataclass(frozen=True)
+class ConversationEntitySpanEvent(WireShape):
+    """``entity_span``: the entity head committed a dictated entity's extent.
+
+    ``kind`` is the entity family, spelled with the producing registry's
+    enum value (``prosody_ssm.entities.EntityKind``); it stays a string on
+    the wire so a kind added model-side parses before every consumer has
+    heard of it. ``frame_ms`` is retrodictive to the span's onset,
+    ``duration_ms`` is its extent on the frame clock, and ``commit_ms`` is
+    where the decision landed. The words inside the extent belong to the
+    transcript loop; the API pairs the two in its consumer and the entity
+    graph's grounding gate decides what enters the record.
+    """
+
+    TYPE: ClassVar[ConversationEventType] = ConversationEventType.ENTITY_SPAN
+
+    frame_ms: int
+    commit_ms: int
+    duration_ms: int
+    kind: str
+
+
 ConversationWireEvent = Union[
     ConversationStateDeltaEvent,
     ConversationTurnBoundaryEvent,
     ConversationBargeInEvent,
+    ConversationEntitySpanEvent,
 ]
 """One committed conversation event off the prediction envelope, decoded by
 the learned event deciders with carried state. The model is the only author."""
@@ -811,6 +835,7 @@ ROOM_TOPIC_EVENTS: tuple[type, ...] = (
     ConversationStateDeltaEvent,
     ConversationTurnBoundaryEvent,
     ConversationBargeInEvent,
+    ConversationEntitySpanEvent,
 )
 """Every shape republished on the LiveKit data topic, in the order a client
 reads them: the worker's own announcement, the model's monologue, the
