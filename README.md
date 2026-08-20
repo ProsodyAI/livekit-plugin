@@ -7,9 +7,11 @@
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 Plugin for [LiveKit Agents](https://docs.livekit.io/agents/) that connects a
-room to the ProsodyAI speech model. The agent listens and speaks on one
-continuous connection, with speaker identity and conversation events on the
-same stream.
+room to the ProsodyAI speech model. The model is full-duplex in the sense the
+speech-to-speech literature uses: the agent listens and speaks at the same
+time on one continuous connection, and turn-taking, overlap, and barge-in
+emerge from the model. Speaker identity and conversation events arrive on
+the same stream.
 
 [Product](https://prosodyai.app) ·
 [Docs](https://prosodyai.app/docs) ·
@@ -36,13 +38,13 @@ await session.start(room=ctx.room)
 ```
 
 `RealtimeModel` sends continuous room audio to ProsodyAI and returns generated
-audio, transcripts, identity updates, and conversation events.
+audio, streaming transcripts, identity updates, and conversation events.
 
 ## Speaker identity
 
-Conversation-local labels look like `speaker_0`. When the model resolves an
-enrolled caller, it emits a durable `person_id` and display name. Returning
-callers resume their saved speaker state.
+Conversation-local diarization labels look like `speaker_0`. When the model
+resolves an enrolled caller, it emits a durable `person_id` and display name.
+Returning callers resume their saved speaker state.
 
 ```python
 realtime = model.sessions[-1]
@@ -57,7 +59,7 @@ def on_identity(event):
 
 | Event | |
 | --- | --- |
-| `prosody_transcript` | Committed words with `speaker_id`, `start_ms`, `end_ms` |
+| `prosody_transcript` | Committed words with `speaker_id` and word-level timestamps (`start_ms`, `end_ms`) |
 | `prosody_event` | Speaker change, new speaker, or identity resolved |
 | `prosody_identity` | Returning person committed |
 | `prosody_text` | Generated text stream |
