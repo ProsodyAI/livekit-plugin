@@ -12,6 +12,8 @@ import pytest
 
 pytest.importorskip("sphn", reason="Opus bridging needs sphn")
 import sphn
+from websockets.asyncio.server import serve
+
 from livekit import rtc
 from livekit.plugins.prosodyai.full_duplex import (
     GATEWAY_FRAME_SAMPLES,
@@ -30,7 +32,6 @@ from livekit.plugins.prosodyai.realtime import (
     TextEvent,
     TranscriptEvent,
 )
-from websockets.asyncio.server import serve
 
 ROOM_SAMPLE_RATE = 16_000
 FRAME_SAMPLES = ROOM_SAMPLE_RATE * 20 // 1000  # 20 ms room frames

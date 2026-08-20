@@ -51,6 +51,12 @@ LiveKit = "https://livekit.io"
 "LiveKit Agents" = "https://docs.livekit.io/agents"
 PyPI = "https://pypi.org/project/livekit-plugins-prosodyai/"
 
+# The standalone repo is the config root: `livekit` is this package's own
+# namespace, so import sorting matches CI's src-detection instead of any
+# enclosing checkout's ruff config.
+[tool.ruff.lint.isort]
+known-first-party = ["livekit", "livekit_plugins_prosodyai"]
+
 [tool.hatch.version]
 path = "livekit/plugins/prosodyai/version.py"
 
