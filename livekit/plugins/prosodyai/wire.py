@@ -257,7 +257,7 @@ class TrackerNewSpeakerEvent(WireShape):
 
 @dataclass(frozen=True)
 class TrackerIdentityResolvedEvent(WireShape):
-    """A lane matched a stored person, once per lane, at its first commit.
+    """A lane matched a profile the organization enrolled, once per lane, at its first commit.
 
     ``verified`` is true on every committed decision: the decoder's absolute
     membership test is the only thing that writes a lane.
@@ -414,7 +414,7 @@ class IdentitySpan(WireShape):
     ``commit_ms`` is where the verdict landed on the model's frame clock. A
     HOLD span carries ``lane`` for the candidate under test while keeping
     ``speaker_id`` null, because a hold attributes nothing. ``late_resolved``
-    marks a span whose commitment arrived after its audio window, and
+    marks a span whose commitment arrived after its audio span closed, and
     ``unique_voice`` marks a minted lane the tracker will not merge into an
     existing one.
     """
@@ -435,9 +435,9 @@ class IdentityLane(WireShape):
 
     ``person_id`` is the durable cross-session lineage identity, present only
     after a committed identity resolution; ``display_name`` labels it.
-    ``is_returning`` marks a lane that resumed a persisted person, and
-    ``is_agent`` marks the org's declared agent identity for self-recognition
-    filtering.
+    ``is_returning`` marks a lane that resumed a profile the organization
+    enrolled, and ``is_agent`` marks the org's declared agent identity for
+    self-recognition filtering.
     """
 
     lane: int
@@ -559,7 +559,7 @@ class GatewayNewSpeakerEvent(WireShape):
 
 @dataclass(frozen=True)
 class GatewayIdentityResolvedEvent(WireShape):
-    """``prosodyai.identity_resolved``: a lane matched a stored person.
+    """``prosodyai.identity_resolved``: a lane matched a profile the organization enrolled.
 
     Fires once per lane, at its first committed segment. ``verified`` is true
     when the decision came from the decoder's absolute membership test.
@@ -665,8 +665,8 @@ class RoomEventType(WireEventType):
 
 
 # The agent's own lane on the transcript. Jarvis is the other party on the
-# call, not a voice the tracker diarized out of the caller's audio, so his
-# words carry this label rather than a ``speaker_N`` lane.
+# call, so his words carry this fixed label. A ``speaker_N`` lane names a
+# voice the tracker diarized out of the caller's audio.
 AGENT_SPEAKER_ID = "agent"
 
 
@@ -708,7 +708,7 @@ class IdentityEvent(WireShape):
 
     ``recognized_at_ms`` is the audio position (ms into the call) of the
     frame whose tracker assignment resolved the person. The model owns this
-    clock, so it is the recognition time; consumers report it and derive
+    clock, so it is the resolution time; consumers report it and derive
     nothing from it.
     """
 
