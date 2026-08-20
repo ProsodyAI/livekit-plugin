@@ -1,10 +1,7 @@
 """RealtimeModel against a fake gateway speaking the real wire protocol.
 
-The fake server is the gateway contract in miniature: handshake on connect,
-one text token, one identity announcement, and a burst of Opus audio after the
-first uplink audio frame arrives. Everything the session promises AgentSession,
-including one generation, open audio/text streams, and a prosody_identity event
-with time-to-recognition, is asserted through the public interface.
+The fake server is the gateway contract in miniature; everything the session
+promises AgentSession is asserted through the public interface.
 """
 
 import asyncio

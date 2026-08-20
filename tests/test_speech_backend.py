@@ -1,11 +1,6 @@
-"""The speech-backend protocol: PersonaPlex on the real wire, and any loop at all.
-
-Two boundaries, each tested against the real thing it faces. The PersonaPlex
-backend runs against a fake gateway speaking the exact kind-tagged Opus wire
-the production gateway serves. The bridge runs against a minimal fake backend
-that shares no code with PersonaPlex, proving the bridge drives any speaking
-loop through the protocol alone: audio in, audio and text out, capability
-declaration honored.
+"""The speech-backend protocol at both boundaries: PersonaPlex against a fake
+gateway speaking the exact kind-tagged Opus wire, and the bridge against a
+minimal fake backend that shares no code with PersonaPlex.
 """
 
 from __future__ import annotations
@@ -113,12 +108,7 @@ async def _fake_gateway(websocket) -> None:
 
 @pytest.mark.asyncio
 async def test_personaplex_backend_speaks_the_gateway_wire() -> None:
-    """Open, send audio, receive: every downlink family lands as its item.
-
-    Speech crosses as protocol items; the ProsodySSM readout frames cross as
-    ``GatewayControlFrame`` with byte-faithful payloads the bridge's parser
-    turns into the same typed events as before.
-    """
+    """Open, send audio, receive: every downlink family lands as its item."""
     async with serve(_fake_gateway, "127.0.0.1", 0) as server:
         port = server.sockets[0].getsockname()[1]
         backend = PersonaPlexBackend(url=f"ws://127.0.0.1:{port}", api_key="psk_test")
@@ -158,9 +148,7 @@ async def test_personaplex_backend_speaks_the_gateway_wire() -> None:
     assert audio and all(block.samples.dtype == np.float32 for block in audio)
     assert sum(block.samples.size for block in audio) > 0
 
-    frames = {
-        item.kind: item.payload for item in items if isinstance(item, GatewayControlFrame)
-    }
+    frames = {item.kind: item.payload for item in items if isinstance(item, GatewayControlFrame)}
     assert set(frames) == {KIND_IDENTITY, KIND_TRANSCRIPT, KIND_EVENT}
     assert json.loads(frames[KIND_IDENTITY]) == IDENTITY
     assert json.loads(frames[KIND_TRANSCRIPT]) == TRANSCRIPT
@@ -234,12 +222,8 @@ ECHO_RATE = 8_000
 
 
 class EchoBackend:
-    """A minimal turn-based speaking loop that shares nothing with PersonaPlex.
-
-    Declares itself honestly: half-duplex, a role prompt channel, an 8 kHz
-    clock. After hearing three uplink blocks it answers with one text span
-    and one audio block, then ends its downlink.
-    """
+    """A minimal turn-based speaking loop that shares nothing with PersonaPlex:
+    half-duplex, a role prompt channel, an 8 kHz clock."""
 
     def __init__(self) -> None:
         self.opened_with: SpeechSessionConfig | None = None
@@ -332,9 +316,7 @@ async def test_the_bridge_drives_any_backend_through_the_protocol() -> None:
 
 def test_a_prompt_outside_the_declared_capabilities_is_refused() -> None:
     with pytest.raises(BackendCapabilityError):
-        FullDuplexBridge(
-            FullDuplexBridgeConfig(voice_prompt="warm"), backend=EchoBackend()
-        )
+        FullDuplexBridge(FullDuplexBridgeConfig(voice_prompt="warm"), backend=EchoBackend())
     # PersonaPlex declares no prompt channel: the gateway primes server-side.
     with pytest.raises(BackendCapabilityError):
         FullDuplexBridge(

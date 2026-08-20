@@ -21,7 +21,7 @@ the same stream.
 ## Install
 
 ```bash
-pip install "livekit-plugins-prosodyai[duplex]"
+pip install livekit-plugins-prosodyai[duplex]
 export PROSODYAI_API_KEY=psk_...
 ```
 
@@ -118,8 +118,9 @@ items in production order, and `close()`.
 from livekit.plugins.prosodyai import FullDuplexBridge, FullDuplexBridgeConfig
 
 bridge = FullDuplexBridge(
-    FullDuplexBridgeConfig(room_sample_rate=16_000, publish_sample_rate=16_000,
-                           role_prompt="You are a concierge."),
+    FullDuplexBridgeConfig(
+        room_sample_rate=16_000, publish_sample_rate=16_000, role_prompt="You are a concierge."
+    ),
     backend=MyRealtimeBackend(),
 )
 ```

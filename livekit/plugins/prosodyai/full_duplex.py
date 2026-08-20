@@ -259,9 +259,7 @@ class FullDuplexBridge:
                 )
             )
 
-    def _as_gateway_event(
-        self, item: SpeechItem | GatewayControlFrame
-    ) -> GatewayEvent | None:
+    def _as_gateway_event(self, item: SpeechItem | GatewayControlFrame) -> GatewayEvent | None:
         """One backend downlink item as the bridge's typed event vocabulary."""
         if isinstance(item, SessionOpened):
             return ReadyEvent()
@@ -287,9 +285,7 @@ class FullDuplexBridge:
                 if flat.size == 0:
                     continue
                 if self._config.publish_sample_rate != backend_rate:
-                    flat = resample_float32(
-                        flat, backend_rate, self._config.publish_sample_rate
-                    )
+                    flat = resample_float32(flat, backend_rate, self._config.publish_sample_rate)
                 await on_downlink_pcm16(float32_to_pcm16_le(flat))
                 continue
             event = self._as_gateway_event(item)
@@ -315,13 +311,9 @@ class FullDuplexBridge:
         """
         await self._backend.open(self._session_config)
         try:
-            send_task = asyncio.create_task(
-                self._send_uplink(uplink_pcm16), name="duplex-uplink"
-            )
+            send_task = asyncio.create_task(self._send_uplink(uplink_pcm16), name="duplex-uplink")
             try:
-                await self._receive_downlink(
-                    on_downlink_pcm16=on_downlink_pcm16, on_event=on_event
-                )
+                await self._receive_downlink(on_downlink_pcm16=on_downlink_pcm16, on_event=on_event)
             finally:
                 self._closed = True
                 send_task.cancel()

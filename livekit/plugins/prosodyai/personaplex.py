@@ -1,15 +1,8 @@
 """PersonaPlex over the ProsodyAI gateway socket (``WS /v1/realtime``).
 
-The first-party speech backend and the bridge's default. Caller PCM goes up
-as 24 kHz Opus in 80 ms frames on a kind-tagged binary wire; the model's
-voice, its monologue text, and the ProsodySSM readout frames come back on
-the same socket. Speech crosses the :class:`SpeechBackend` boundary as
-protocol items. Readout frames (identity, transcript, committed model
-events) cross as :class:`GatewayControlFrame` for the bridge to parse; the
-protocol never names them.
-
-Priming is the gateway's job: the session's voice and role are bound
-server-side, so the capabilities declare no prompt channel.
+Caller PCM goes up as 24 kHz Opus in 80 ms frames on a kind-tagged binary
+wire; speech comes back as protocol items and the ProsodySSM readout frames
+as :class:`GatewayControlFrame` for the bridge to parse.
 """
 
 from __future__ import annotations
@@ -69,10 +62,7 @@ class GatewayEnvError(RuntimeError):
 
 
 def gateway_ws_url(*, base_url: str = DEFAULT_BASE_URL) -> str:
-    """The gateway socket for one origin. ``base_url`` is http(s) or ws(s).
-
-    The URL carries no credential; the key travels as ``x-api-key`` on the handshake.
-    """
+    """The gateway socket URL for one origin; the key travels as ``x-api-key`` on the handshake, never in the URL."""
     parsed = urlsplit((base_url or "").strip().rstrip("/"))
     scheme = _WS_SCHEME.get(parsed.scheme.lower())
     if scheme is None or not parsed.netloc:
@@ -114,12 +104,8 @@ class GatewayConnection:
 
 @dataclass(frozen=True)
 class GatewayControlFrame:
-    """One non-speech gateway frame, handed to the bridge verbatim.
-
-    These carry the ProsodySSM readouts: committed identity resolutions
-    (0x04), lane-attributed transcripts (0x05), and committed model events
-    (0x06). The bridge parses them with its own wire vocabulary.
-    """
+    """One non-speech gateway frame, handed to the bridge verbatim:
+    identity (0x04), transcripts (0x05), committed model events (0x06)."""
 
     kind: int
     payload: bytes
@@ -131,9 +117,8 @@ PERSONAPLEX_CAPABILITIES = SpeechBackendCapabilities(
     accepts_role_prompt=False,
     sample_rate=GATEWAY_SAMPLE_RATE,
 )
-"""PersonaPlex on the gateway socket: continuous full-duplex at 24 kHz.
-The gateway primes voice and role server-side, so neither prompt channel
-exists on this session."""
+"""Continuous full-duplex at 24 kHz; the gateway primes voice and role
+server-side, so neither prompt channel exists on this session."""
 
 
 class PersonaPlexBackend:
@@ -154,8 +139,7 @@ class PersonaPlexBackend:
         return PERSONAPLEX_CAPABILITIES
 
     async def open(self, config: SpeechSessionConfig) -> None:
-        """Connect the gateway socket. The prompts have no channel here, and
-        the bridge's capability check keeps them out of ``config``."""
+        """Connect the gateway socket; prompts have no channel here."""
         del config
         try:
             import sphn
@@ -190,11 +174,8 @@ class PersonaPlexBackend:
                 await self._socket.send(bytes([KIND_AUDIO]) + packet)
 
     async def receive(self) -> AsyncIterator[SpeechItem | GatewayControlFrame]:
-        """Yield the socket's downlink in arrival order.
-
-        Handshake, model audio, and monologue text arrive as protocol items;
-        every other frame arrives as a :class:`GatewayControlFrame`.
-        """
+        """Yield the socket's downlink in arrival order; frames beyond
+        handshake, audio, and text arrive as :class:`GatewayControlFrame`."""
         if self._socket is None or self._reader is None:
             return
         async for message in self._socket:

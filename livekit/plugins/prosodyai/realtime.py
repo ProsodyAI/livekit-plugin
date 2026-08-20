@@ -1,19 +1,7 @@
 """The ProsodyAI gateway as a LiveKit Agents realtime model.
 
-``RealtimeModel`` drops the gateway's continuous Mimi → ProsodySSM speaker
-state → PersonaPlex path into an ``AgentSession`` the same way
-``openai.realtime.RealtimeModel`` does: LiveKit owns the transport, room
-audio, and session state; this plugin owns the wire.
-
-The model is continuous full-duplex. The session emits exactly one generation
+The model is continuous full-duplex: the session emits exactly one generation
 whose audio and text streams stay open for the life of the conversation.
-Response timing, barge-in, and memory priming emerge from the continuous
-gateway recurrence.
-
-Identity resolution is a first-class session event: the gateway announces who
-is speaking as soon as ProsodySSM resolves the speaker, and the session emits
-it verbatim as ``prosody_identity``. Its ``resolved_at_ms`` is the model's
-own resolution point.
 """
 
 from __future__ import annotations
@@ -66,11 +54,7 @@ logger = logging.getLogger("livekit.plugins.prosodyai.realtime")
 
 
 class SessionEventType(WireEventType):
-    """The session event names this plugin emits, one per gateway readout.
-
-    Members equal their string values, so ``session.on("prosody_identity", …)``
-    and ``session.on(SessionEventType.IDENTITY, …)`` register the same handler.
-    """
+    """Session event names, one per gateway readout. Members equal their string values."""
 
     IDENTITY = "prosody_identity"
     TEXT = "prosody_text"
@@ -99,20 +83,16 @@ class RealtimeModel(llm.RealtimeModel):
         super().__init__(
             capabilities=llm.RealtimeCapabilities(
                 message_truncation=False,
-                # The model is full duplex: it listens while it speaks and
-                # handles barge-in itself, so there are no server turn events.
+                # Full duplex: the model handles barge-in itself, so no server turn events.
                 turn_detection=False,
-                # Caller words come off the same socket as the audio, already
-                # attributed, so an AgentSession needs no STT of its own.
+                # Caller words come off the same socket, already attributed; no STT needed.
                 user_transcription=True,
                 auto_tool_reply_generation=False,
                 audio_output=True,
                 manual_function_calls=False,
             )
         )
-        # The one environment touch in this plugin, and it happens here at
-        # construction, so a missing key fails the worker at startup instead
-        # of failing a live conversation at its first audio frame.
+        # Resolve at construction so a missing key fails the worker at startup.
         self._connection = connection or GatewayConnection.from_environment(
             base_url=base_url, api_key=api_key
         )
@@ -133,8 +113,7 @@ class RealtimeModel(llm.RealtimeModel):
         return list(self._sessions)
 
     def session(self, *, turn_detection_disabled: bool = False) -> "RealtimeSession":
-        # The runtime contains no turn detector. This framework compatibility
-        # parameter is intentionally inert.
+        # The runtime contains no turn detector; this compatibility parameter is inert.
         del turn_detection_disabled
         sess = RealtimeSession(self)
         self._sessions.append(sess)
@@ -233,27 +212,19 @@ class RealtimeSession(llm.RealtimeSession[EventTypes]):
         elif isinstance(event, TextEvent):
             if event.text and not self._closed:
                 self._text_ch.send_nowait(event.text)
-                # Also emitted as a session event so applications can consume
-                # the text without reading the generation's text stream.
+                # Also a session event, so apps can skip the generation's text stream.
                 self.emit(SessionEventType.TEXT.value, event)
         elif isinstance(event, TranscriptEvent):
             self._on_transcript(event)
         elif isinstance(event, (SpeakerChangeEvent, NewSpeakerEvent, IdentityResolvedEvent)):
-            # One committed model event off the gateway's event channel,
-            # relayed typed and verbatim, retrodictive timestamp included.
             self.emit(SessionEventType.EVENT.value, event)
         elif isinstance(event, IdentityEvent):
             self.emit(SessionEventType.IDENTITY.value, event)
 
     def _on_transcript(self, event: TranscriptEvent) -> None:
-        """Relay one committed span of caller words, twice.
-
-        ``prosody_transcript`` carries the model's own shape: lane-attributed
-        deltas with times in the caller's audio. The framework event carries
-        the same words in LiveKit's vocabulary, so a stock ``AgentSession``
-        transcribes the user without knowing this plugin exists. Each span is
-        final because the model committed it; there is no client-side turn
-        machinery here deciding when a thought ended.
+        """Relay one committed span of caller words, twice: ``prosody_transcript``
+        in the model's own shape, and the framework event in LiveKit's vocabulary
+        so a stock ``AgentSession`` transcribes the user.
         """
         self.emit(SessionEventType.TRANSCRIPT.value, event)
         text = " ".join(delta.text for delta in event.deltas if delta.text).strip()
@@ -310,8 +281,7 @@ class RealtimeSession(llm.RealtimeSession[EventTypes]):
         return self._tools
 
     async def update_instructions(self, instructions: str) -> None:
-        # Priming is the gateway's job (memory + identity preambles reach the
-        # model over the control frame). Client instructions have no channel.
+        # Priming is the gateway's job; client instructions have no channel.
         logger.debug("update_instructions ignored (gateway owns priming)")
 
     async def update_chat_ctx(self, chat_ctx: llm.ChatContext) -> None:
@@ -352,8 +322,7 @@ class RealtimeSession(llm.RealtimeSession[EventTypes]):
         return None
 
     def interrupt(self) -> None:
-        # Barge-in is the model's own behavior: it hears the caller while it
-        # speaks. There is no client-side generation to cancel.
+        # Barge-in is the model's own behavior; there is no client-side generation to cancel.
         return None
 
     def truncate(

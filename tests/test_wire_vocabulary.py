@@ -1,9 +1,6 @@
-"""The vendored wire vocabulary must match the repo's canonical source.
+"""The vendored ``wire.py`` must stay byte-identical to ``shared/wire.py``.
 
-The plugin publishes separately, so it ships its own copy of ``wire.py``.
-Inside the monorepo this test proves the copy is byte-identical to
-``shared/wire.py``; outside the monorepo (an installed distribution) the
-canonical source is absent and the check skips.
+Outside the monorepo the canonical source is absent and the check skips.
 """
 
 from __future__ import annotations

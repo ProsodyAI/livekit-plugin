@@ -1,17 +1,6 @@
-"""The speech-backend protocol the full-duplex bridge runs against.
-
-The bridge owns everything ProsodyAI owns on the duplex path: the room-clock
-resampling, the uplink hold for the session handshake, and the ProsodySSM
-readout plumbing (identity lanes, transcripts, committed model events, state
-resume). This module names only the speaking loop: open a session, stream
-audio in, stream audio and text out, close. PersonaPlex over the gateway
-socket (``personaplex.PersonaPlexBackend``) is the first-party implementation
-and the bridge's default; an OpenAI Realtime-style, Gemini Live-style, or
-Moshi-style loop plugs in by implementing :class:`SpeechBackend`.
-
-Capabilities are declared facts. A turn-based (half-duplex) loop declares
-``full_duplex=False`` and the declaration travels as-is: the bridge contains
-no turn detector and synthesizes nothing on a backend's behalf.
+"""The speaking-loop protocol the full-duplex bridge runs against: open a
+session, stream audio in, stream audio and text out, close. Capabilities are
+declared facts; the bridge synthesizes nothing on a backend's behalf.
 """
 
 from __future__ import annotations
@@ -41,14 +30,9 @@ class BackendCapabilityError(RuntimeError):
 
 @dataclass(frozen=True)
 class SpeechBackendCapabilities:
-    """What one speech backend declares about itself.
-
-    ``full_duplex`` states whether the loop listens while it speaks; a
-    turn-based backend declares ``False`` here and consumers read the fact.
-    ``accepts_voice_prompt`` and ``accepts_role_prompt`` state whether the
-    session open carries those prompts to the loop. ``sample_rate`` is the
-    backend's native mono PCM rate; the bridge resamples to and from it.
-    """
+    """What one speech backend declares about itself: duplexity, prompt
+    channels, and the native mono PCM ``sample_rate`` the bridge resamples
+    to and from."""
 
     full_duplex: bool
     accepts_voice_prompt: bool
@@ -58,13 +42,8 @@ class SpeechBackendCapabilities:
 
 @dataclass(frozen=True)
 class SpeechSessionConfig:
-    """What the bridge asks of one speaking-loop session at open.
-
-    ``voice_prompt`` names or seeds the voice the loop speaks with;
-    ``role_prompt`` sets its role. Each is honored only by a backend whose
-    capabilities declare the channel; :func:`require_capabilities` enforces
-    the match before a session opens.
-    """
+    """What the bridge asks of one speaking-loop session at open; each prompt
+    is honored only when the backend's capabilities declare the channel."""
 
     voice_prompt: str | None = None
     role_prompt: str | None = None
@@ -112,14 +91,9 @@ SpeechItem = SessionOpened | SpeechAudio | SpeechText
 
 
 class SpeechBackend(Protocol):
-    """One speech-to-speech speaking loop, as the bridge drives it.
-
-    ``open`` binds a session, ``send_audio`` streams caller audio into the
-    loop, ``receive`` yields the loop's downlink in production order, and
-    ``close`` releases the session. Audio at this boundary is mono float32
-    at ``capabilities.sample_rate`` in blocks of any length; framing and
-    codec are the implementation's business.
-    """
+    """One speech-to-speech speaking loop, as the bridge drives it. Audio at
+    this boundary is mono float32 at ``capabilities.sample_rate`` in blocks
+    of any length; framing and codec are the implementation's business."""
 
     @property
     def capabilities(self) -> SpeechBackendCapabilities: ...
