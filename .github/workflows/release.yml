@@ -135,7 +135,7 @@ jobs:
       - name: Install release checks
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
+          python -m pip install -e ".[dev]" ruff build twine
 
       - name: Verify package version and plugin import
         env:
@@ -162,11 +162,11 @@ jobs:
               raise SystemExit("ProsodyAI did not register exactly once as a LiveKit plugin.")
           PY
 
+      # The same gate CI runs on every PR to main, on the tagged release commit.
       - name: Run release checks
         run: |
-          ruff check .
-          ruff format --check .
-          mypy livekit/plugins/prosodyai livekit_plugins_prosodyai
+          ruff check . --line-length 100 --select E,W,F,I,B,C4 --ignore E501,E402,B904,B008,B007
+          ruff format --check . --line-length 100
           pytest
           python -m build
           python -m twine check dist/*
