@@ -638,6 +638,7 @@ class RoomEventType(WireEventType):
     TEXT = "prosodyai.text"
     IDENTITY = "prosodyai.identity"
     TRANSCRIPT = "prosodyai.transcript"
+    MEMORY = "prosodyai.memory"
 
 
 # The agent's own lane on the transcript. Jarvis is the other party on the
@@ -711,6 +712,31 @@ class TranscriptEvent(WireShape):
     deltas: tuple[TranscriptDelta, ...] = ()
 
 
+@dataclass(frozen=True)
+class MemoryRecordEvent(WireShape):
+    """One committed turn joined to the state movement over its span.
+
+    The consumer-side memory record. Steps and words are separate loops on
+    the frame path; this record is where they meet: the words of one
+    committed turn beside the ``state_delta`` readout whose excursion
+    overlapped the turn's span. ``delta`` carries the model's committed
+    event verbatim. ``delta`` is ``None`` when the model committed no
+    excursion over the span, so the absence of significance is an explicit
+    fact on the record. ``person_id`` is the durable identity behind the
+    lane when the session had resolved one at commit time.
+    """
+
+    TYPE: ClassVar[RoomEventType] = RoomEventType.MEMORY
+
+    session_id: str
+    speaker_id: str
+    person_id: Optional[str]
+    start_ms: int
+    end_ms: int
+    text: str
+    delta: Optional[ConversationStateDeltaEvent] = None
+
+
 def parse_identity_payload(frame: Mapping[str, Any]) -> IdentityEvent:
     """Parse one 0x04 committed-identity payload.
 
@@ -776,6 +802,7 @@ ROOM_TOPIC_EVENTS: tuple[type, ...] = (
     TextEvent,
     IdentityEvent,
     TranscriptEvent,
+    MemoryRecordEvent,
     GatewaySpeakerChangeEvent,
     GatewayNewSpeakerEvent,
     GatewayIdentityResolvedEvent,
@@ -787,7 +814,8 @@ ROOM_TOPIC_EVENTS: tuple[type, ...] = (
 )
 """Every shape republished on the LiveKit data topic, in the order a client
 reads them: the worker's own announcement, the model's monologue, the
-identity and transcript republications, the committed gateway events, and the
+identity and transcript republications, the per-turn memory records, the
+committed gateway events, and the
 conversation events relayed verbatim. A client's event vocabulary is this
 tuple. The tracker events stay off it: they are the model's own clock and the
 gateway relabels them before anybody outside sees them."""
