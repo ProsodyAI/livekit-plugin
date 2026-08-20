@@ -10,10 +10,10 @@ whose audio and text streams stay open for the life of the conversation.
 Response timing, barge-in, and memory priming emerge from the continuous
 gateway recurrence.
 
-Speaker recognition is a first-class session event: the gateway announces who
-is speaking as soon as ProsodySSM resolves the voice, and the session emits
-it verbatim as ``prosody_identity``. Its ``recognized_at_ms`` is the model's
-own recognition point.
+Identity resolution is a first-class session event: the gateway announces who
+is speaking as soon as ProsodySSM resolves the speaker, and the session emits
+it verbatim as ``prosody_identity``. Its ``resolved_at_ms`` is the model's
+own resolution point.
 """
 
 from __future__ import annotations

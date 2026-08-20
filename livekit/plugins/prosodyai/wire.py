@@ -435,7 +435,7 @@ class IdentityLane(WireShape):
 
     ``person_id`` is the durable cross-session lineage identity, present only
     after a committed identity resolution; ``display_name`` labels it.
-    ``is_returning`` marks a lane that resumed a profile the organization
+    ``resumed`` marks a lane that resumed a profile the organization
     enrolled, and ``is_agent`` marks the org's declared agent identity for
     self-recognition filtering.
     """
@@ -444,7 +444,7 @@ class IdentityLane(WireShape):
     speaker_id: str
     person_id: Optional[str] = None
     display_name: Optional[str] = None
-    is_returning: bool = False
+    resumed: bool = False
     is_agent: bool = False
 
 
@@ -661,7 +661,7 @@ class RoomEventType(WireEventType):
     TEXT = "prosodyai.text"
     IDENTITY = "prosodyai.identity"
     TRANSCRIPT = "prosodyai.transcript"
-    MEMORY = "prosodyai.memory"
+    MOMENT = "prosodyai.moment"
 
 
 # The agent's own lane on the transcript. Jarvis is the other party on the
@@ -706,7 +706,7 @@ class TranscriptDelta(WireShape):
 class IdentityEvent(WireShape):
     """A committed identity resolution, announced mid-conversation.
 
-    ``recognized_at_ms`` is the audio position (ms into the call) of the
+    ``resolved_at_ms`` is the audio position (ms into the call) of the
     frame whose tracker assignment resolved the person. The model owns this
     clock, so it is the resolution time; consumers report it and derive
     nothing from it.
@@ -717,8 +717,8 @@ class IdentityEvent(WireShape):
     speaker_id: str
     person_id: str
     display_name: Optional[str]
-    is_returning: bool
-    recognized_at_ms: int
+    resumed: bool
+    resolved_at_ms: int
 
 
 @dataclass(frozen=True)
@@ -736,10 +736,10 @@ class TranscriptEvent(WireShape):
 
 
 @dataclass(frozen=True)
-class MemoryRecordEvent(WireShape):
+class MomentRecordEvent(WireShape):
     """One committed turn joined to the state movement over its span.
 
-    The consumer-side memory record. Steps and words are separate loops on
+    The consumer-side moment record. Steps and words are separate loops on
     the frame path; this record is where they meet: the words of one
     committed turn beside the ``state_delta`` readout whose excursion
     overlapped the turn's span. ``delta`` carries the model's committed
@@ -749,7 +749,7 @@ class MemoryRecordEvent(WireShape):
     lane when the session had resolved one at commit time.
     """
 
-    TYPE: ClassVar[RoomEventType] = RoomEventType.MEMORY
+    TYPE: ClassVar[RoomEventType] = RoomEventType.MOMENT
 
     session_id: str
     speaker_id: str
@@ -825,7 +825,7 @@ ROOM_TOPIC_EVENTS: tuple[type, ...] = (
     TextEvent,
     IdentityEvent,
     TranscriptEvent,
-    MemoryRecordEvent,
+    MomentRecordEvent,
     GatewaySpeakerChangeEvent,
     GatewayNewSpeakerEvent,
     GatewayIdentityResolvedEvent,
@@ -838,7 +838,7 @@ ROOM_TOPIC_EVENTS: tuple[type, ...] = (
 )
 """Every shape republished on the LiveKit data topic, in the order a client
 reads them: the worker's own announcement, the model's monologue, the
-identity and transcript republications, the per-turn memory records, the
+identity and transcript republications, the per-turn moment records, the
 committed gateway events, and the
 conversation events relayed verbatim. A client's event vocabulary is this
 tuple. The tracker events stay off it: they are the model's own clock and the
