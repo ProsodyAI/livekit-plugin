@@ -11,9 +11,9 @@ Response timing, barge-in, and memory priming emerge from the continuous
 gateway recurrence.
 
 Speaker recognition is a first-class session event: the gateway announces who
-is speaking the moment ProsodySSM resolves the voice, and the session emits it
-verbatim as ``prosody_identity``. Its ``recognized_at_ms`` is the model's own
-recognition point; this plugin measures nothing.
+is speaking as soon as ProsodySSM resolves the voice, and the session emits
+it verbatim as ``prosody_identity``. Its ``recognized_at_ms`` is the model's
+own recognition point.
 """
 
 from __future__ import annotations
@@ -269,7 +269,7 @@ class RealtimeSession(llm.RealtimeSession[EventTypes]):
         )
 
     def _emit_generation(self) -> None:
-        """One conversation-length generation the moment the gateway is ready."""
+        """One conversation-length generation, opened when the gateway is ready."""
         if self._generation_emitted:
             return
         self._generation_emitted = True

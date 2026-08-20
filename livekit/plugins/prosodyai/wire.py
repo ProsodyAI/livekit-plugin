@@ -23,8 +23,8 @@ Parsers here are strict. A recognized event missing a required field raises
 ``ValueError`` naming the event and the field, because a producer that
 omits a required field broke the contract and a fabricated default would
 turn the breakage into a fake committed fact. Optional fields are the ones
-today's producers legitimately send as null; they parse to ``None`` and
-nothing else. Unrecognized event types parse to ``None`` so the vocabulary
+today's producers legitimately send as null; they parse to ``None``.
+Unrecognized event types parse to ``None`` so the vocabulary
 can grow model-side first without breaking a consumer.
 
 Serializing mirrors parsing. ``parse_wire`` derives every coercion from the
@@ -196,8 +196,8 @@ def to_wire(value: Any) -> Any:
     discriminator leads, enum members become their wire value, and nested
     shapes and sequences serialize through the same walk. Deriving it matters
     most for a nested union member, whose ``TYPE`` is a ``ClassVar`` and so
-    never appears in ``dataclasses.asdict``; a payload missing it parses back
-    to nothing at all, silently.
+    never appears in ``dataclasses.asdict``; a payload missing it silently
+    parses back to ``None``.
     """
     if isinstance(value, WireShape):
         payload: dict[str, Any] = {} if value.TYPE is None else {WIRE_TYPE_KEY: value.TYPE.value}
@@ -277,14 +277,13 @@ TrackerEvent = Union[
     TrackerIdentityResolvedEvent,
 ]
 """One committed identity-state event off the prediction envelope. The model
-is the only author: nothing downstream detects, thresholds, or reconstructs
-these."""
+is the only author of these events."""
 
 
 # ---------------------------------------------------------------------------
 # The model wire: committed conversation events decoded by the learned event
-# deciders. They share the prediction envelope's ``events`` list with the
-# tracker events and share nothing else. Every field is a committed fact on
+# deciders. They ride the prediction envelope's ``events`` list beside the
+# tracker events. Every field is a committed fact on
 # the model's frame clock; the decision bands that produced the commit stay
 # inside the model.
 
@@ -391,8 +390,8 @@ the learned event deciders with carried state. The model is the only author."""
 # Diarization is the identity-state timeline. The deployment's tracker commits
 # each frame to a lane, a new lane, or hold, and the ordered sequence of those
 # commitments is the product's diarization. These shapes are the canonical
-# readout: every surface (live events, session export, batch response) derives
-# from them, and nothing downstream reconstructs a timeline from heuristics.
+# readout: every surface (live events, session export, batch response)
+# derives from them.
 
 
 IDENTITY_TIMELINE_SCHEMA_VERSION = 1

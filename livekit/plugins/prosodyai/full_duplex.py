@@ -236,7 +236,7 @@ class FullDuplexBridgeConfig:
 
     @property
     def headers(self) -> dict[str, str]:
-        """The handshake credential, on the header rather than in the URL."""
+        """The handshake credential, carried on the header so the URL stays loggable."""
         return {API_KEY_HEADER: self.api_key}
 
 
@@ -355,7 +355,7 @@ class FullDuplexBridge:
             # The gateway queues uplink frames and steps them on a pump task,
             # so its receive loop keeps reading through GPU spikes. Client
             # pings stay disabled: uplink audio itself is the liveness signal
-            # on this socket, and a transport ping buys nothing over it.
+            # on this socket.
             ping_interval=None,
         ) as websocket:
             send_task = asyncio.create_task(
