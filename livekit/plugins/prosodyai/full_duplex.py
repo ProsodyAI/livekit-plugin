@@ -12,8 +12,8 @@ import json
 import logging
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from dataclasses import asdict, dataclass, field
-from typing import TYPE_CHECKING, ClassVar
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit, urlunsplit
 
 import numpy as np
@@ -36,7 +36,7 @@ from .wire import (
     KIND_TEXT,
     KIND_TRANSCRIPT,
     IdentityEvent,
-    RoomEventType,
+    TextEvent,
     TranscriptDelta,
     TranscriptEvent,
     parse_conversation_event,
@@ -126,18 +126,6 @@ GATEWAY_READY_TIMEOUT = 120.0
 @dataclass
 class ReadyEvent:
     """The gateway handshake completed: the model is live on the socket."""
-
-
-@dataclass(frozen=True)
-class TextEvent:
-    """One token of the model's inner monologue, as it is spoken."""
-
-    TYPE: ClassVar[RoomEventType] = RoomEventType.TEXT
-
-    text: str
-
-    def to_dict(self) -> dict:
-        return {"type": self.TYPE.value, **asdict(self)}
 
 
 GatewayEvent = (
