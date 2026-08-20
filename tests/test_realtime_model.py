@@ -1,10 +1,7 @@
 """RealtimeModel against a fake gateway speaking the real wire protocol.
 
-The fake server is the gateway contract in miniature: handshake on connect,
-one text token, one identity announcement, and a burst of Opus audio after the
-first uplink audio frame arrives. Everything the session promises AgentSession,
-including one generation, open audio/text streams, and a prosody_identity event
-with time-to-recognition, is asserted through the public interface.
+The fake server is the gateway contract in miniature; everything the session
+promises AgentSession is asserted through the public interface.
 """
 
 import asyncio
@@ -43,8 +40,8 @@ IDENTITY = {
     "speaker_id": "speaker_0",
     "person_id": "person:158a2b2e",
     "display_name": "Ada",
-    "is_returning": True,
-    "recognized_at_ms": 3000,
+    "resumed": True,
+    "resolved_at_ms": 3000,
 }
 
 # Exact 0x05 payload from the gateway's transcript sender.
@@ -149,15 +146,15 @@ async def test_full_duplex_session_against_the_wire_protocol(monkeypatch):
         identity: IdentityEvent = await asyncio.wait_for(identities.get(), timeout=10.0)
         assert identity.person_id == IDENTITY["person_id"]
         assert identity.display_name == "Ada"
-        assert identity.is_returning is True
-        assert identity.recognized_at_ms == 3000
+        assert identity.resumed is True
+        assert identity.resolved_at_ms == 3000
         assert identity.to_dict() == {
             "type": "prosodyai.identity",
             "speaker_id": identity.speaker_id,
             "person_id": IDENTITY["person_id"],
             "display_name": "Ada",
-            "is_returning": True,
-            "recognized_at_ms": 3000,
+            "resumed": True,
+            "resolved_at_ms": 3000,
         }
 
         token: TextEvent = await asyncio.wait_for(tokens.get(), timeout=10.0)

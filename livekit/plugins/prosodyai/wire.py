@@ -23,8 +23,8 @@ Parsers here are strict. A recognized event missing a required field raises
 ``ValueError`` naming the event and the field, because a producer that
 omits a required field broke the contract and a fabricated default would
 turn the breakage into a fake committed fact. Optional fields are the ones
-today's producers legitimately send as null; they parse to ``None`` and
-nothing else. Unrecognized event types parse to ``None`` so the vocabulary
+today's producers legitimately send as null; they parse to ``None``.
+Unrecognized event types parse to ``None`` so the vocabulary
 can grow model-side first without breaking a consumer.
 
 Serializing mirrors parsing. ``parse_wire`` derives every coercion from the
@@ -196,8 +196,8 @@ def to_wire(value: Any) -> Any:
     discriminator leads, enum members become their wire value, and nested
     shapes and sequences serialize through the same walk. Deriving it matters
     most for a nested union member, whose ``TYPE`` is a ``ClassVar`` and so
-    never appears in ``dataclasses.asdict``; a payload missing it parses back
-    to nothing at all, silently.
+    never appears in ``dataclasses.asdict``; a payload missing it silently
+    parses back to ``None``.
     """
     if isinstance(value, WireShape):
         payload: dict[str, Any] = {} if value.TYPE is None else {WIRE_TYPE_KEY: value.TYPE.value}
@@ -257,7 +257,7 @@ class TrackerNewSpeakerEvent(WireShape):
 
 @dataclass(frozen=True)
 class TrackerIdentityResolvedEvent(WireShape):
-    """A lane matched a stored person, once per lane, at its first commit.
+    """A lane matched a profile the organization enrolled, once per lane, at its first commit.
 
     ``verified`` is true on every committed decision: the decoder's absolute
     membership test is the only thing that writes a lane.
@@ -277,14 +277,13 @@ TrackerEvent = Union[
     TrackerIdentityResolvedEvent,
 ]
 """One committed identity-state event off the prediction envelope. The model
-is the only author: nothing downstream detects, thresholds, or reconstructs
-these."""
+is the only author of these events."""
 
 
 # ---------------------------------------------------------------------------
 # The model wire: committed conversation events decoded by the learned event
-# deciders. They share the prediction envelope's ``events`` list with the
-# tracker events and share nothing else. Every field is a committed fact on
+# deciders. They ride the prediction envelope's ``events`` list beside the
+# tracker events. Every field is a committed fact on
 # the model's frame clock; the decision bands that produced the commit stay
 # inside the model.
 
@@ -295,6 +294,7 @@ class ConversationEventType(WireEventType):
     STATE_DELTA = "state_delta"
     TURN_BOUNDARY = "turn_boundary"
     BARGE_IN = "barge_in"
+    ENTITY_SPAN = "entity_span"
 
 
 @dataclass(frozen=True)
@@ -352,10 +352,33 @@ class ConversationBargeInEvent(WireShape):
     resolved: bool
 
 
+@dataclass(frozen=True)
+class ConversationEntitySpanEvent(WireShape):
+    """``entity_span``: the entity head committed a dictated entity's extent.
+
+    ``kind`` is the entity family, spelled with the producing registry's
+    enum value (``prosody_ssm.entities.EntityKind``); it stays a string on
+    the wire so a kind added model-side parses before every consumer has
+    heard of it. ``frame_ms`` is retrodictive to the span's onset,
+    ``duration_ms`` is its extent on the frame clock, and ``commit_ms`` is
+    where the decision landed. The words inside the extent belong to the
+    transcript loop; the API pairs the two in its consumer and the entity
+    graph's grounding gate decides what enters the record.
+    """
+
+    TYPE: ClassVar[ConversationEventType] = ConversationEventType.ENTITY_SPAN
+
+    frame_ms: int
+    commit_ms: int
+    duration_ms: int
+    kind: str
+
+
 ConversationWireEvent = Union[
     ConversationStateDeltaEvent,
     ConversationTurnBoundaryEvent,
     ConversationBargeInEvent,
+    ConversationEntitySpanEvent,
 ]
 """One committed conversation event off the prediction envelope, decoded by
 the learned event deciders with carried state. The model is the only author."""
@@ -367,8 +390,8 @@ the learned event deciders with carried state. The model is the only author."""
 # Diarization is the identity-state timeline. The deployment's tracker commits
 # each frame to a lane, a new lane, or hold, and the ordered sequence of those
 # commitments is the product's diarization. These shapes are the canonical
-# readout: every surface (live events, session export, batch response) derives
-# from them, and nothing downstream reconstructs a timeline from heuristics.
+# readout: every surface (live events, session export, batch response)
+# derives from them.
 
 
 IDENTITY_TIMELINE_SCHEMA_VERSION = 1
@@ -391,7 +414,7 @@ class IdentitySpan(WireShape):
     ``commit_ms`` is where the verdict landed on the model's frame clock. A
     HOLD span carries ``lane`` for the candidate under test while keeping
     ``speaker_id`` null, because a hold attributes nothing. ``late_resolved``
-    marks a span whose commitment arrived after its audio window, and
+    marks a span whose commitment arrived after its audio span closed, and
     ``unique_voice`` marks a minted lane the tracker will not merge into an
     existing one.
     """
@@ -412,16 +435,16 @@ class IdentityLane(WireShape):
 
     ``person_id`` is the durable cross-session lineage identity, present only
     after a committed identity resolution; ``display_name`` labels it.
-    ``is_returning`` marks a lane that resumed a persisted person, and
-    ``is_agent`` marks the org's declared agent identity for self-recognition
-    filtering.
+    ``resumed`` marks a lane that resumed a profile the organization
+    enrolled, and ``is_agent`` marks the org's declared agent identity for
+    self-recognition filtering.
     """
 
     lane: int
     speaker_id: str
     person_id: Optional[str] = None
     display_name: Optional[str] = None
-    is_returning: bool = False
+    resumed: bool = False
     is_agent: bool = False
 
 
@@ -491,7 +514,6 @@ class GatewayEventType(WireEventType):
     NEW_SPEAKER = "prosodyai.new_speaker"
     IDENTITY_RESOLVED = "prosodyai.identity_resolved"
     AGENT_TOOL = "prosodyai.agent_tool"
-    AGENT_THOUGHT = "prosodyai.agent_thought"
     AGENT_TOOL_STATUS = "prosodyai.agent_tool_status"
 
 
@@ -517,7 +539,13 @@ class GatewaySpeakerChangeEvent(WireShape):
 
 @dataclass(frozen=True)
 class GatewayNewSpeakerEvent(WireShape):
-    """``prosodyai.new_speaker``: a lane opened for a voice never heard here."""
+    """``prosodyai.new_speaker``: a lane opened for a voice never heard here.
+
+    The voice is new; the person is not optional. The gateway mints the
+    durable person id at the commit that opened the lane, so the first
+    event a caller sees for a speaker already names who the session will
+    persist them as.
+    """
 
     TYPE: ClassVar[GatewayEventType] = GatewayEventType.NEW_SPEAKER
 
@@ -525,11 +553,13 @@ class GatewayNewSpeakerEvent(WireShape):
     session_id: str
     speaker_id: str
     evidence_seconds: float
+    person_id: Optional[str]
+    display_name: Optional[str]
 
 
 @dataclass(frozen=True)
 class GatewayIdentityResolvedEvent(WireShape):
-    """``prosodyai.identity_resolved``: a lane matched a stored person.
+    """``prosodyai.identity_resolved``: a lane matched a profile the organization enrolled.
 
     Fires once per lane, at its first committed segment. ``verified`` is true
     when the decision came from the decoder's absolute membership test.
@@ -549,9 +579,10 @@ class GatewayIdentityResolvedEvent(WireShape):
 class GatewayAgentToolEvent(WireShape):
     """``prosodyai.agent_tool``: one completed capability, shown to the caller.
 
-    The reasoner chose the tool, the gateway ran it, and ``result`` is what
-    the speech model was told. This is the acting half of the reasoner's
-    deliberation; ``prosodyai.agent_thought`` is the reading half.
+    The speech model's monologue asked for the capability, the gateway ran
+    it, and ``result`` is the clause Jarvis was given to say. The reading
+    half of the deliberation is the monologue itself, which reaches the
+    caller as the agent's own transcript.
     """
 
     TYPE: ClassVar[GatewayEventType] = GatewayEventType.AGENT_TOOL
@@ -560,22 +591,6 @@ class GatewayAgentToolEvent(WireShape):
     name: str
     arguments: dict[str, Any] = field(default_factory=dict)
     result: str = ""
-
-
-@dataclass(frozen=True)
-class GatewayAgentThoughtEvent(WireShape):
-    """``prosodyai.agent_thought``: the reasoner's own read of the moment.
-
-    One deliberation line per reasoning pass, in the reasoner's own words,
-    written before it decides whether any capability is warranted. It is
-    Jarvis thinking, and it is never spoken: the speech model never receives
-    it and it carries no measurement, verdict, or score.
-    """
-
-    TYPE: ClassVar[GatewayEventType] = GatewayEventType.AGENT_THOUGHT
-
-    session_id: str
-    text: str
 
 
 class ToolCallStatus(WireEventType):
@@ -590,11 +605,11 @@ class ToolCallStatus(WireEventType):
 class GatewayAgentToolStatusEvent(WireShape):
     """``prosodyai.agent_tool_status``: one stage of a capability's lifecycle.
 
-    ``started`` fires the moment the reasoner commits to running the tool;
-    ``completed`` carries the result; ``failed`` carries the error. PersonaPlex
-    only ever receives the completed exchange (it cannot await a round trip), so
-    these events exist for the caller surface and never join the control
-    channel. ``call_id`` ties the stages together.
+    ``started`` fires the moment the executor takes the monologue's intent;
+    ``completed`` carries the result; ``failed`` carries the error. What the
+    speech model receives is a clause to say, on the control channel, so
+    these events are the operator's view of the same invocation and never
+    join that channel. ``call_id`` ties the stages together.
     """
 
     TYPE: ClassVar[GatewayEventType] = GatewayEventType.AGENT_TOOL_STATUS
@@ -613,7 +628,6 @@ GatewayModelEvent = Union[
     GatewayNewSpeakerEvent,
     GatewayIdentityResolvedEvent,
     GatewayAgentToolEvent,
-    GatewayAgentThoughtEvent,
     GatewayAgentToolStatusEvent,
 ]
 """A committed model decision off the gateway's 0x06 event channel."""
@@ -643,15 +657,40 @@ def parse_gateway_model_event(
 class RoomEventType(WireEventType):
     """The republished event names on the LiveKit data topic."""
 
+    AGENT_STATE = "agent.state"
     TEXT = "prosodyai.text"
     IDENTITY = "prosodyai.identity"
     TRANSCRIPT = "prosodyai.transcript"
+    MOMENT = "prosodyai.moment"
 
 
 # The agent's own lane on the transcript. Jarvis is the other party on the
-# call, not a voice the tracker diarized out of the caller's audio, so his
-# words carry this label rather than a ``speaker_N`` lane.
+# call, so his words carry this fixed label. A ``speaker_N`` lane names a
+# voice the tracker diarized out of the caller's audio.
 AGENT_SPEAKER_ID = "agent"
+
+
+@dataclass(frozen=True)
+class AgentStateEvent(WireShape):
+    """``agent.state``: the worker said where the call stands.
+
+    The worker's own announcement about the socket it holds, published when
+    the gateway binds. It reports the state of the connection and decides
+    nothing about the conversation.
+    """
+
+    TYPE: ClassVar[RoomEventType] = RoomEventType.AGENT_STATE
+
+    state: str
+
+
+@dataclass(frozen=True)
+class TextEvent(WireShape):
+    """``prosodyai.text``: one token of the model's monologue, as it is spoken."""
+
+    TYPE: ClassVar[RoomEventType] = RoomEventType.TEXT
+
+    text: str
 
 
 @dataclass(frozen=True)
@@ -667,9 +706,9 @@ class TranscriptDelta(WireShape):
 class IdentityEvent(WireShape):
     """A committed identity resolution, announced mid-conversation.
 
-    ``recognized_at_ms`` is the audio position (ms into the call) of the
+    ``resolved_at_ms`` is the audio position (ms into the call) of the
     frame whose tracker assignment resolved the person. The model owns this
-    clock, so it is the recognition time; consumers report it and derive
+    clock, so it is the resolution time; consumers report it and derive
     nothing from it.
     """
 
@@ -678,8 +717,8 @@ class IdentityEvent(WireShape):
     speaker_id: str
     person_id: str
     display_name: Optional[str]
-    is_returning: bool
-    recognized_at_ms: int
+    resumed: bool
+    resolved_at_ms: int
 
 
 @dataclass(frozen=True)
@@ -694,6 +733,31 @@ class TranscriptEvent(WireShape):
 
     speaker_id: str
     deltas: tuple[TranscriptDelta, ...] = ()
+
+
+@dataclass(frozen=True)
+class MomentRecordEvent(WireShape):
+    """One committed turn joined to the state movement over its span.
+
+    The consumer-side moment record. Steps and words are separate loops on
+    the frame path; this record is where they meet: the words of one
+    committed turn beside the ``state_delta`` readout whose excursion
+    overlapped the turn's span. ``delta`` carries the model's committed
+    event verbatim. ``delta`` is ``None`` when the model committed no
+    excursion over the span, so the absence of significance is an explicit
+    fact on the record. ``person_id`` is the durable identity behind the
+    lane when the session had resolved one at commit time.
+    """
+
+    TYPE: ClassVar[RoomEventType] = RoomEventType.MOMENT
+
+    session_id: str
+    speaker_id: str
+    person_id: Optional[str]
+    start_ms: int
+    end_ms: int
+    text: str
+    delta: Optional[ConversationStateDeltaEvent] = None
 
 
 def parse_identity_payload(frame: Mapping[str, Any]) -> IdentityEvent:
@@ -754,6 +818,51 @@ class SessionEvent:
 
 
 # ---------------------------------------------------------------------------
+# The room topic: what a joined client sees.
+
+ROOM_TOPIC_EVENTS: tuple[type, ...] = (
+    AgentStateEvent,
+    TextEvent,
+    IdentityEvent,
+    TranscriptEvent,
+    MomentRecordEvent,
+    GatewaySpeakerChangeEvent,
+    GatewayNewSpeakerEvent,
+    GatewayIdentityResolvedEvent,
+    GatewayAgentToolEvent,
+    GatewayAgentToolStatusEvent,
+    ConversationStateDeltaEvent,
+    ConversationTurnBoundaryEvent,
+    ConversationBargeInEvent,
+    ConversationEntitySpanEvent,
+)
+"""Every shape republished on the LiveKit data topic, in the order a client
+reads them: the worker's own announcement, the model's monologue, the
+identity and transcript republications, the per-turn moment records, the
+committed gateway events, and the
+conversation events relayed verbatim. A client's event vocabulary is this
+tuple. The tracker events stay off it: they are the model's own clock and the
+gateway relabels them before anybody outside sees them."""
+
+
+def parse_room_event(payload: Mapping[str, Any]) -> Optional[Any]:
+    """Parse one payload off the LiveKit data topic into its declared shape.
+
+    The room topic's single parse site, and the reason a client needs no
+    vocabulary of its own: the shapes come from :data:`ROOM_TOPIC_EVENTS`.
+    Strict on a recognized type, and ``None`` for one nobody declared, so a
+    grown vocabulary never breaks a joined client.
+    """
+    if not isinstance(payload, Mapping):
+        return None
+    shapes = {shape.TYPE.value: shape for shape in ROOM_TOPIC_EVENTS}
+    shape = shapes.get(str(payload.get(WIRE_TYPE_KEY)))
+    if shape is None:
+        return None
+    return parse_wire(shape, payload, f"{shape.TYPE.value} event")
+
+
+# ---------------------------------------------------------------------------
 # The vocabulary manifest: what the drift tests compare across trees.
 
 
@@ -769,17 +878,7 @@ def vocabulary() -> dict[str, tuple[str, ...]]:
             TrackerSpeakerChangeEvent,
             TrackerNewSpeakerEvent,
             TrackerIdentityResolvedEvent,
-            ConversationStateDeltaEvent,
-            ConversationTurnBoundaryEvent,
-            ConversationBargeInEvent,
-            GatewaySpeakerChangeEvent,
-            GatewayNewSpeakerEvent,
-            GatewayIdentityResolvedEvent,
-            GatewayAgentToolEvent,
-            GatewayAgentThoughtEvent,
-            GatewayAgentToolStatusEvent,
-            IdentityEvent,
-            TranscriptEvent,
+            *ROOM_TOPIC_EVENTS,
         )
     }
     entries[SESSION_ENVELOPE_ENTRY] = SESSION_ENVELOPE_KEYS

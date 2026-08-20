@@ -26,8 +26,8 @@ inside the package and make acoustic measurements available through the typed
 conversation surface.
 
 The package must remain importable as `from livekit.plugins import prosodyai`, and importing it
-must register exactly one `Plugin` instance with the LiveKit Agents runtime. The
-`livekit_plugins_prosodyai` namespace is a compatibility re-export, not the primary API.
+must register exactly one `Plugin` instance with the LiveKit Agents runtime. The primary API is
+`livekit.plugins.prosodyai`; the `livekit_plugins_prosodyai` namespace is a compatibility re-export.
 
 ## Maintainer automation
 
